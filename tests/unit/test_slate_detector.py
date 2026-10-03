@@ -29,3 +29,18 @@ def test_rejects_wrong_frequency_and_duration():
     samples = synth(sr, 15, [(1, 3, 800), (5, 5.5, 1000), (8, 12, 1000)])
     tones = detect_tones(samples, sr)
     assert tones == []
+
+
+def test_rejects_weak_1khz_component_inside_louder_audio():
+    sr = 8000
+    duration = 8
+    samples = np.zeros(round(sr * duration), dtype=np.float32)
+    first = round(2 * sr)
+    last = round(4 * sr)
+    t = np.arange(last - first) / sr
+    samples[first:last] = (
+        0.04 * np.sin(2 * np.pi * 1000 * t)
+        + 0.30 * np.sin(2 * np.pi * 1500 * t)
+    ).astype(np.float32)
+
+    assert detect_tones(samples, sr) == []
