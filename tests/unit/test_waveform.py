@@ -1,5 +1,4 @@
 import numpy as np
-
 from nearscapes.audio.waveform import calculate_waveform
 
 
