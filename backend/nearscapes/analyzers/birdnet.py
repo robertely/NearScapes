@@ -63,17 +63,17 @@ class BirdNetAnalyzer:
         )
 
         detections: list[Detection] = []
-        for row in predictions.itertuples(index=False):
-            confidence = float(row.confidence)
+        for row in predictions.to_structured_array():
+            confidence = float(row["confidence"])
             if confidence < threshold:
                 continue
 
-            raw_name = str(row.species_name)
+            raw_name = str(row["species_name"])
             scientific_name, common_name = _split_species_name(raw_name)
             detections.append(
                 Detection(
-                    start_seconds=_seconds(row.start_time),
-                    end_seconds=_seconds(row.end_time),
+                    start_seconds=_seconds(row["start_time"]),
+                    end_seconds=_seconds(row["end_time"]),
                     category="wildlife",
                     label=common_name,
                     confidence=confidence,
