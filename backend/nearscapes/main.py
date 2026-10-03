@@ -6,6 +6,7 @@ import mimetypes
 import os
 import tempfile
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -26,6 +27,9 @@ settings = get_settings()
 configure_logging(settings.log_level)
 storage = LocalStorage()
 app = FastAPI(title="NearScapes", version="0.1.0")
+
+DbSession = Annotated[Session, Depends(get_db)]
+UploadedFile = Annotated[UploadFile, File(...)]
 
 
 def source_payload(source: SourceRecording) -> dict:
@@ -82,13 +86,13 @@ def health() -> dict:
 
 
 @app.get("/api/sources")
-def list_sources(db: Session = Depends(get_db)) -> list[dict]:
+def list_sources(db: DbSession) -> list[dict]:
     sources = db.scalars(select(SourceRecording).order_by(SourceRecording.created_at.desc())).all()
     return [source_payload(source) for source in sources]
 
 
 @app.post("/api/sources", status_code=202)
-async def upload_source(file: UploadFile = File(...), db: Session = Depends(get_db)) -> dict:
+async def upload_source(file: UploadedFile, db: DbSession) -> dict:
     filename = Path(file.filename or "upload").name
     hasher = hashlib.sha256()
     byte_count = 0
@@ -136,7 +140,7 @@ async def upload_source(file: UploadFile = File(...), db: Session = Depends(get_
 
 
 @app.get("/api/sources/{source_id}")
-def get_source(source_id: str, db: Session = Depends(get_db)) -> dict:
+def get_source(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
@@ -144,7 +148,7 @@ def get_source(source_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 @app.get("/api/sources/{source_id}/analysis")
-def get_analysis(source_id: str, db: Session = Depends(get_db)) -> dict:
+def get_analysis(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
@@ -172,7 +176,7 @@ def get_analysis(source_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 @app.get("/api/sources/{source_id}/audio")
-def get_audio(source_id: str, db: Session = Depends(get_db)):
+def get_audio(source_id: str, db: DbSession):
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
@@ -181,7 +185,7 @@ def get_audio(source_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/sources/{source_id}/waveform")
-def get_waveform(source_id: str, db: Session = Depends(get_db)) -> dict:
+def get_waveform(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
@@ -196,7 +200,7 @@ def analyzers() -> list[dict]:
 
 
 @app.post("/api/sources/{source_id}/runs", status_code=202)
-def create_run(source_id: str, request: CreateRunRequest, db: Session = Depends(get_db)) -> dict:
+def create_run(source_id: str, request: CreateRunRequest, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
@@ -223,7 +227,7 @@ def create_run(source_id: str, request: CreateRunRequest, db: Session = Depends(
 
 
 @app.get("/api/sources/{source_id}/runs")
-def list_runs(source_id: str, db: Session = Depends(get_db)) -> list[dict]:
+def list_runs(source_id: str, db: DbSession) -> list[dict]:
     runs = db.scalars(
         select(AnalysisRun)
         .where(AnalysisRun.source_id == source_id)
@@ -233,7 +237,7 @@ def list_runs(source_id: str, db: Session = Depends(get_db)) -> list[dict]:
 
 
 @app.get("/api/runs/{run_id}")
-def get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
+def get_run(run_id: str, db: DbSession) -> dict:
     run = db.get(AnalysisRun, run_id)
     if not run:
         raise HTTPException(404, "Run not found")
@@ -241,7 +245,7 @@ def get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 @app.get("/api/runs/{run_id}/events")
-def list_events(run_id: str, db: Session = Depends(get_db)) -> list[dict]:
+def list_events(run_id: str, db: DbSession) -> list[dict]:
     run = db.get(AnalysisRun, run_id)
     if not run:
         raise HTTPException(404, "Run not found")
@@ -252,7 +256,7 @@ def list_events(run_id: str, db: Session = Depends(get_db)) -> list[dict]:
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str, db: Session = Depends(get_db)) -> dict:
+def get_job(job_id: str, db: DbSession) -> dict:
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
