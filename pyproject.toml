@@ -22,7 +22,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+wildlife = [
+  "birdnet>=1.1,<2",
+]
 dev = [
+
   "httpx>=0.28,<1",
   "pytest>=8.3,<9",
   "ruff>=0.9,<1",
