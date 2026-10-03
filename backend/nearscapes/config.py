@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     slate_expected_duration_seconds: float = 2.0
     slate_duration_tolerance_seconds: float = 0.5
     slate_min_tone_to_guard_db: float = 25.0
+    slate_min_tone_to_broadband_ratio: float = 0.03
     slate_max_pair_gap_seconds: float = 60.0
 
 
