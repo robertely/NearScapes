@@ -1,46 +1,41 @@
 import sys
 from types import SimpleNamespace
 
-import pandas as pd
-
 from nearscapes.analyzers.base import AnalyzerContext
 from nearscapes.analyzers.birdnet import BirdNetAnalyzer
 
 
-class FakePredictions(pd.DataFrame):
-    @property
-    def _constructor(self):
-        return FakePredictions
-
-
-class FakeModel:
-    def predict(self, path, device, n_workers):
-        assert device == "CPU"
-        assert n_workers == 1
-        return FakePredictions(
+class FakePredictions:
+    def itertuples(self, index=False):
+        assert index is False
+        return iter(
             [
-                {
-                    "file_path": str(path),
-                    "start_time": "00:00:03.00",
-                    "end_time": "00:00:06.00",
-                    "species_name": "Poecile atricapillus_Black-capped Chickadee",
-                    "confidence": 0.91,
-                },
-                {
-                    "file_path": str(path),
-                    "start_time": "00:00:09.00",
-                    "end_time": "00:00:12.00",
-                    "species_name": "Low confidence thing",
-                    "confidence": 0.05,
-                },
+                SimpleNamespace(
+                    start_time="00:00:03.00",
+                    end_time="00:00:06.00",
+                    species_name="Poecile atricapillus_Black-capped Chickadee",
+                    confidence=0.91,
+                ),
+                SimpleNamespace(
+                    start_time="00:00:09.00",
+                    end_time="00:00:12.00",
+                    species_name="Low confidence thing",
+                    confidence=0.05,
+                ),
             ]
         )
 
 
+class FakeModel:
+    def predict(self, path, device, n_workers):
+        assert path.name == "recording.wav"
+        assert device == "CPU"
+        assert n_workers == 1
+        return FakePredictions()
+
+
 def test_birdnet_normalizes_cpu_predictions(monkeypatch, tmp_path):
-    fake_birdnet = SimpleNamespace(
-        load=lambda *args, **kwargs: FakeModel(),
-    )
+    fake_birdnet = SimpleNamespace(load=lambda *args, **kwargs: FakeModel())
     monkeypatch.setitem(sys.modules, "birdnet", fake_birdnet)
 
     source = tmp_path / "recording.wav"
