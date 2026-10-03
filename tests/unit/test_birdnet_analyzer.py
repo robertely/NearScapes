@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-
 from nearscapes.analyzers.base import AnalyzerContext
 from nearscapes.analyzers.birdnet import BirdNetAnalyzer
 
