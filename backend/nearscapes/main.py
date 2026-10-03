@@ -1,0 +1,271 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import mimetypes
+import os
+import tempfile
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from nearscapes.analyzers.registry import get_analyzer, list_analyzers
+from nearscapes.api.schemas import CreateRunRequest
+from nearscapes.config import get_settings
+from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
+from nearscapes.db.session import get_db
+from nearscapes.jobs.dispatch import dispatch_analysis, dispatch_ingest
+from nearscapes.logging import configure_logging
+from nearscapes.storage.local import LocalStorage
+
+settings = get_settings()
+configure_logging(settings.log_level)
+storage = LocalStorage()
+app = FastAPI(title="NearScapes", version="0.1.0")
+
+
+def source_payload(source: SourceRecording) -> dict:
+    return {
+        "id": source.id,
+        "sha256": source.sha256,
+        "filename": source.filename,
+        "duration_seconds": source.duration_seconds,
+        "sample_rate": source.sample_rate,
+        "channels": source.channels,
+        "codec": source.codec,
+        "embedded_metadata": source.embedded_metadata or {},
+        "location": (source.embedded_metadata or {}).get("location"),
+        "status": source.status,
+        "error": source.error,
+        "created_at": source.created_at.isoformat(),
+    }
+
+
+def run_payload(run: AnalysisRun) -> dict:
+    return {
+        "id": run.id,
+        "source_id": run.source_id,
+        "analyzer": run.analyzer,
+        "analyzer_version": run.analyzer_version,
+        "parameters": run.parameters,
+        "status": run.status,
+        "error": run.error,
+        "created_at": run.created_at.isoformat(),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+    }
+
+
+def event_payload(event: Event) -> dict:
+    return {
+        "id": event.id,
+        "run_id": event.run_id,
+        "start_seconds": event.start_seconds,
+        "end_seconds": event.end_seconds,
+        "category": event.category,
+        "label": event.label,
+        "confidence": event.confidence,
+        "text": event.text,
+        "frequency_low_hz": event.frequency_low_hz,
+        "frequency_high_hz": event.frequency_high_hz,
+        "attributes": event.attributes,
+    }
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {"status": "ok"}
+
+
+@app.get("/api/sources")
+def list_sources(db: Session = Depends(get_db)) -> list[dict]:
+    sources = db.scalars(select(SourceRecording).order_by(SourceRecording.created_at.desc())).all()
+    return [source_payload(source) for source in sources]
+
+
+@app.post("/api/sources", status_code=202)
+async def upload_source(file: UploadFile = File(...), db: Session = Depends(get_db)) -> dict:
+    filename = Path(file.filename or "upload").name
+    hasher = hashlib.sha256()
+    byte_count = 0
+    fd, temporary_name = tempfile.mkstemp(prefix="nearscapes-upload-")
+    os.close(fd)
+    temporary = Path(temporary_name)
+    try:
+        with temporary.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                byte_count += len(chunk)
+                if byte_count > settings.max_upload_bytes:
+                    raise HTTPException(
+                        status_code=413, detail="Upload exceeds configured size limit"
+                    )
+                hasher.update(chunk)
+                output.write(chunk)
+
+        sha256 = hasher.hexdigest()
+        existing = db.scalar(select(SourceRecording).where(SourceRecording.sha256 == sha256))
+        if existing:
+            return {"source": source_payload(existing), "job": None, "deduplicated": True}
+
+        destination = storage.source_path(sha256)
+        temporary.replace(destination)
+        source = SourceRecording(
+            sha256=sha256,
+            filename=filename,
+            storage_path=str(destination),
+            status="uploaded",
+        )
+        db.add(source)
+        db.flush()
+        job = Job(kind="ingest", source_id=source.id)
+        db.add(job)
+        db.commit()
+        dispatch_ingest(job.id, source.id)
+        return {
+            "source": source_payload(source),
+            "job": {"id": job.id, "status": job.status},
+            "deduplicated": False,
+        }
+    finally:
+        temporary.unlink(missing_ok=True)
+        await file.close()
+
+
+@app.get("/api/sources/{source_id}")
+def get_source(source_id: str, db: Session = Depends(get_db)) -> dict:
+    source = db.get(SourceRecording, source_id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    return source_payload(source)
+
+
+@app.get("/api/sources/{source_id}/analysis")
+def get_analysis(source_id: str, db: Session = Depends(get_db)) -> dict:
+    source = db.get(SourceRecording, source_id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    runs = db.scalars(
+        select(AnalysisRun)
+        .where(AnalysisRun.source_id == source_id)
+        .order_by(AnalysisRun.created_at.asc())
+    ).all()
+    run_results = []
+    for run in runs:
+        events = db.scalars(
+            select(Event).where(Event.run_id == run.id).order_by(Event.start_seconds.asc())
+        ).all()
+        run_results.append(
+            {**run_payload(run), "events": [event_payload(event) for event in events]}
+        )
+    return {
+        "schema": "nearscapes/audio-analysis/v1",
+        "source": source_payload(source),
+        "recording_metadata": {
+            "location": (source.embedded_metadata or {}).get("location"),
+        },
+        "runs": run_results,
+    }
+
+
+@app.get("/api/sources/{source_id}/audio")
+def get_audio(source_id: str, db: Session = Depends(get_db)):
+    source = db.get(SourceRecording, source_id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    media_type = mimetypes.guess_type(source.filename)[0] or "application/octet-stream"
+    return FileResponse(source.storage_path, filename=source.filename, media_type=media_type)
+
+
+@app.get("/api/sources/{source_id}/waveform")
+def get_waveform(source_id: str, db: Session = Depends(get_db)) -> dict:
+    source = db.get(SourceRecording, source_id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    if source.status != "ready" or not source.waveform_path:
+        raise HTTPException(409, f"Waveform not ready; source status is {source.status}")
+    return json.loads(Path(source.waveform_path).read_text())
+
+
+@app.get("/api/analyzers")
+def analyzers() -> list[dict]:
+    return list_analyzers()
+
+
+@app.post("/api/sources/{source_id}/runs", status_code=202)
+def create_run(source_id: str, request: CreateRunRequest, db: Session = Depends(get_db)) -> dict:
+    source = db.get(SourceRecording, source_id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    if source.status != "ready":
+        raise HTTPException(409, f"Source is not ready: {source.status}")
+    try:
+        analyzer = get_analyzer(request.analyzer)
+    except KeyError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    run = AnalysisRun(
+        source_id=source.id,
+        analyzer=analyzer.id,
+        analyzer_version=analyzer.version,
+        parameters=request.parameters,
+        status="queued",
+    )
+    db.add(run)
+    db.flush()
+    job = Job(kind="analysis", source_id=source.id, run_id=run.id)
+    db.add(job)
+    db.commit()
+    dispatch_analysis(job.id, run.id)
+    return {"run": run_payload(run), "job": {"id": job.id, "status": job.status}}
+
+
+@app.get("/api/sources/{source_id}/runs")
+def list_runs(source_id: str, db: Session = Depends(get_db)) -> list[dict]:
+    runs = db.scalars(
+        select(AnalysisRun)
+        .where(AnalysisRun.source_id == source_id)
+        .order_by(AnalysisRun.created_at.asc())
+    ).all()
+    return [run_payload(run) for run in runs]
+
+
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: str, db: Session = Depends(get_db)) -> dict:
+    run = db.get(AnalysisRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    return run_payload(run)
+
+
+@app.get("/api/runs/{run_id}/events")
+def list_events(run_id: str, db: Session = Depends(get_db)) -> list[dict]:
+    run = db.get(AnalysisRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    events = db.scalars(
+        select(Event).where(Event.run_id == run_id).order_by(Event.start_seconds.asc())
+    ).all()
+    return [event_payload(event) for event in events]
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str, db: Session = Depends(get_db)) -> dict:
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return {
+        "id": job.id,
+        "kind": job.kind,
+        "status": job.status,
+        "progress": job.progress,
+        "source_id": job.source_id,
+        "run_id": job.run_id,
+        "error": job.error,
+    }
+
+
+frontend = Path(__file__).resolve().parents[2] / "frontend"
+app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")

@@ -1,0 +1,30 @@
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="NEARSCAPES_", case_sensitive=False)
+
+    database_url: str = "postgresql+psycopg://nearscapes:nearscapes@postgres:5432/nearscapes"
+    redis_url: str = "redis://redis:6379/0"
+    queue_mode: str = "dramatiq"
+    storage_root: Path = Path("/data")
+    model_cache: Path = Path("/models")
+    log_level: str = "INFO"
+    max_upload_bytes: int = 2 * 1024 * 1024 * 1024
+    waveform_points: int = 4000
+    pcm_sample_rate: int = 8000
+
+    slate_frequency_hz: float = 1000.0
+    slate_frequency_tolerance_hz: float = 30.0
+    slate_expected_duration_seconds: float = 2.0
+    slate_duration_tolerance_seconds: float = 0.5
+    slate_min_tone_to_guard_db: float = 25.0
+    slate_max_pair_gap_seconds: float = 60.0
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

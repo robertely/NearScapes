@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NearScapes</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>NearScapes</h1>
+        <p>Local audio analysis workbench</p>
+      </div>
+      <span id="status" class="status">Ready</span>
+    </header>
+
+    <section id="drop-zone" class="drop-zone">
+      <strong>Drop an audio file here</strong>
+      <span>or choose a file</span>
+      <input id="file-input" type="file" accept="audio/*">
+    </section>
+
+    <section id="workspace" class="workspace hidden">
+      <div class="source-heading">
+        <div>
+          <h2 id="filename"></h2>
+          <div id="metadata" class="metadata"></div><div id="location" class="metadata"></div>
+        </div>
+        <div class="actions"><button id="run-slate" disabled>Run 1 kHz slate detector</button><a id="analysis-json" class="button-link" href="#" target="_blank">Analysis JSON</a></div>
+      </div>
+
+      <audio id="audio" controls preload="metadata"></audio>
+
+      <div class="timeline-shell">
+        <canvas id="waveform"></canvas>
+        <div id="lanes" class="lanes"></div>
+      </div>
+
+      <div class="runs-heading">
+        <h3>Analysis runs</h3>
+        <button id="refresh">Refresh</button>
+      </div>
+      <div id="runs" class="runs"></div>
+
+      <h3>Detected events</h3>
+      <div id="events" class="event-list"></div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

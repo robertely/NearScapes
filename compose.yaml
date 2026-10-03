@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: nearscapes
+      POSTGRES_USER: nearscapes
+      POSTGRES_PASSWORD: nearscapes
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nearscapes -d nearscapes"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    command: alembic upgrade head
+    environment: &app-env
+      NEARSCAPES_DATABASE_URL: ${NEARSCAPES_DATABASE_URL:-postgresql+psycopg://nearscapes:nearscapes@postgres:5432/nearscapes}
+      NEARSCAPES_REDIS_URL: ${NEARSCAPES_REDIS_URL:-redis://redis:6379/0}
+      NEARSCAPES_QUEUE_MODE: ${NEARSCAPES_QUEUE_MODE:-dramatiq}
+      NEARSCAPES_STORAGE_ROOT: /data
+      NEARSCAPES_MODEL_CACHE: /models
+      NEARSCAPES_LOG_LEVEL: ${NEARSCAPES_LOG_LEVEL:-INFO}
+      NEARSCAPES_MAX_UPLOAD_BYTES: ${NEARSCAPES_MAX_UPLOAD_BYTES:-2147483648}
+      NEARSCAPES_WAVEFORM_POINTS: ${NEARSCAPES_WAVEFORM_POINTS:-4000}
+      NEARSCAPES_PCM_SAMPLE_RATE: ${NEARSCAPES_PCM_SAMPLE_RATE:-8000}
+      NEARSCAPES_SLATE_FREQUENCY_HZ: ${NEARSCAPES_SLATE_FREQUENCY_HZ:-1000}
+      NEARSCAPES_SLATE_FREQUENCY_TOLERANCE_HZ: ${NEARSCAPES_SLATE_FREQUENCY_TOLERANCE_HZ:-30}
+      NEARSCAPES_SLATE_EXPECTED_DURATION_SECONDS: ${NEARSCAPES_SLATE_EXPECTED_DURATION_SECONDS:-2.0}
+      NEARSCAPES_SLATE_DURATION_TOLERANCE_SECONDS: ${NEARSCAPES_SLATE_DURATION_TOLERANCE_SECONDS:-0.5}
+      NEARSCAPES_SLATE_MIN_TONE_TO_GUARD_DB: ${NEARSCAPES_SLATE_MIN_TONE_TO_GUARD_DB:-25}
+      NEARSCAPES_SLATE_MAX_PAIR_GAP_SECONDS: ${NEARSCAPES_SLATE_MAX_PAIR_GAP_SECONDS:-60}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build: .
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - data:/data
+      - models:/models
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build: .
+    command: ["dramatiq", "nearscapes.jobs.tasks", "--processes", "1", "--threads", "2"]
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - data:/data
+      - models:/models
+
+volumes:
+  data:
+  models:
+  postgres:
