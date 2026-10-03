@@ -1,28 +1,36 @@
 import sys
 from types import SimpleNamespace
 
+import numpy as np
+import pytest
+
 from nearscapes.analyzers.base import AnalyzerContext
 from nearscapes.analyzers.birdnet import BirdNetAnalyzer
 
 
 class FakePredictions:
-    def itertuples(self, index=False):
-        assert index is False
-        return iter(
+    def to_structured_array(self):
+        return np.array(
             [
-                SimpleNamespace(
-                    start_time="00:00:03.00",
-                    end_time="00:00:06.00",
-                    species_name="Poecile atricapillus_Black-capped Chickadee",
-                    confidence=0.91,
+                (
+                    3.0,
+                    6.0,
+                    "Poecile atricapillus_Black-capped Chickadee",
+                    0.91,
                 ),
-                SimpleNamespace(
-                    start_time="00:00:09.00",
-                    end_time="00:00:12.00",
-                    species_name="Low confidence thing",
-                    confidence=0.05,
+                (
+                    9.0,
+                    12.0,
+                    "Low confidence thing",
+                    0.05,
                 ),
-            ]
+            ],
+            dtype=[
+                ("start_time", "f4"),
+                ("end_time", "f4"),
+                ("species_name", object),
+                ("confidence", "f4"),
+            ],
         )
 
 
@@ -57,6 +65,6 @@ def test_birdnet_normalizes_cpu_predictions(monkeypatch, tmp_path):
     assert event.end_seconds == 6.0
     assert event.category == "wildlife"
     assert event.label == "Black-capped Chickadee"
-    assert event.confidence == 0.91
+    assert event.confidence == pytest.approx(0.91)
     assert event.attributes["scientific_name"] == "Poecile atricapillus"
     assert event.attributes["device"] == "CPU"
