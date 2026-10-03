@@ -1,5 +1,4 @@
 import numpy as np
-
 from nearscapes.analyzers.slate import detect_tones, pair_tones
 
 
