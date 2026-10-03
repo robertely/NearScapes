@@ -1,0 +1,73 @@
+name: Wildlife CPU smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "backend/nearscapes/analyzers/birdnet.py"
+      - "pyproject.toml"
+      - ".github/workflows/wildlife-smoke.yml"
+
+jobs:
+  birdnet-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BIRDNET_APP_DATA: ${{ github.workspace }}/.birdnet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: .birdnet
+          key: birdnet-v3-onnx-fp16-preview3.1
+      - run: uv sync --extra wildlife --extra dev
+      - name: Fetch BirdNET reference soundscape
+        run: |
+          curl -L --fail --retry 3 \
+            -o /tmp/birdnet-soundscape.wav \
+            https://raw.githubusercontent.com/birdnet-team/birdnet/main/example/soundscape.wav
+      - name: Run NearScapes BirdNET analyzer on CPU
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+          import tempfile
+
+          from nearscapes.analyzers.base import AnalyzerContext
+          from nearscapes.analyzers.birdnet import BirdNetAnalyzer
+
+          audio = Path("/tmp/birdnet-soundscape.wav")
+          with tempfile.TemporaryDirectory() as tmp:
+              events = BirdNetAnalyzer().analyze(
+                  AnalyzerContext(
+                      source_path=audio,
+                      cache_dir=Path(tmp),
+                      source_sha256="reference",
+                  ),
+                  {
+                      "backend": "onnx",
+                      "precision": "fp16",
+                      "confidence": 0.10,
+                      "n_workers": 1,
+                  },
+              )
+
+          print(f"wildlife_events={len(events)}")
+          for event in events[:20]:
+              print(
+                  f"{event.start_seconds:7.2f}-{event.end_seconds:7.2f} "
+                  f"{event.confidence:0.3f} {event.label}"
+              )
+
+          assert events, "BirdNET returned no wildlife detections"
+          assert all(event.attributes["device"] == "CPU" for event in events)
+          assert any(
+              "Chickadee" in event.label or "Titmouse" in event.label
+              for event in events
+          ), "Reference recording did not produce an expected bird-family detection"
+          PY
