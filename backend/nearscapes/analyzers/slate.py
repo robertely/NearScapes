@@ -23,6 +23,7 @@ def detect_tones(
     expected_duration_seconds: float = 2.0,
     duration_tolerance_seconds: float = 0.5,
     min_tone_to_guard_db: float = 25.0,
+    min_tone_to_broadband_ratio: float = 0.03,
     frame_seconds: float = 0.05,
 ) -> list[ToneRegion]:
     frame_size = max(64, round(sample_rate * frame_seconds))
@@ -34,6 +35,7 @@ def detect_tones(
     target_band = np.abs(frequencies - target_hz) <= frequency_tolerance_hz
     if not np.any(target_band):
         raise ValueError("Sample rate/frame size cannot resolve slate detector target band")
+
     guard = (
         (frequencies >= target_hz - 300)
         & (frequencies <= target_hz + 300)
@@ -43,7 +45,7 @@ def detect_tones(
         raise ValueError("Sample rate/frame size cannot resolve slate detector guard band")
 
     window = np.hanning(frame_size).astype(np.float32)
-    active = np.zeros(frame_count, dtype=bool)
+    strong = np.zeros(frame_count, dtype=bool)
     ratios = np.full(frame_count, -120.0, dtype=np.float32)
 
     batch_frames = 4096
@@ -55,46 +57,71 @@ def detect_tones(
         frames = block.reshape(frame_end - frame_start, frame_size)
         weighted = frames * window
         spectrum = np.abs(np.fft.rfft(weighted, axis=1)) ** 2
+
         target_power = np.max(spectrum[:, target_band], axis=1)
         guard_power = np.mean(spectrum[:, guard], axis=1) + 1e-12
         tone_to_guard_db = 10.0 * np.log10((target_power + 1e-12) / guard_power)
-        rms = np.sqrt(np.mean(weighted * weighted, axis=1))
+
+        broadband_power = np.mean(weighted * weighted, axis=1) + 1e-12
+        normalized_target_power = target_power / (frame_size * frame_size)
+        tone_to_broadband_ratio = normalized_target_power / broadband_power
+        rms = np.sqrt(broadband_power)
+
         ratios[frame_start:frame_end] = tone_to_guard_db
-        active[frame_start:frame_end] = (tone_to_guard_db >= min_tone_to_guard_db) & (
-            rms >= 1e-4
+        strong[frame_start:frame_end] = (
+            (tone_to_guard_db >= min_tone_to_guard_db)
+            & (tone_to_broadband_ratio >= min_tone_to_broadband_ratio)
+            & (rms >= 1e-4)
         )
 
-    # Fill tiny one-frame dropouts and merge short gaps. Real phone-speaker playback can
-    # contain brief broadband transients while the 1 kHz carrier is still present.
-    if len(active) >= 3:
-        holes = (~active[1:-1]) & active[:-2] & active[2:]
-        active[1:-1][holes] = True
+    expected_frames = max(1, round(expected_duration_seconds / frame_seconds))
+    vote_kernel = np.ones(expected_frames, dtype=np.float32) / expected_frames
+    coverage = np.convolve(strong.astype(np.float32), vote_kernel, mode="same")
+    candidate = coverage >= 0.45
 
-    changes = np.diff(np.r_[False, active, False].astype(np.int8))
-    starts = np.where(changes == 1)[0]
-    ends = np.where(changes == -1)[0]
-
-    merged: list[list[int]] = []
-    merge_gap_frames = max(1, round(0.15 / frame_seconds))
-    for start, end in zip(starts, ends, strict=True):
-        if merged and start - merged[-1][1] <= merge_gap_frames:
-            merged[-1][1] = int(end)
-        else:
-            merged.append([int(start), int(end)])
+    candidate_indices = np.flatnonzero(candidate)
+    clusters: list[tuple[int, int]] = []
+    if candidate_indices.size:
+        cluster_start = previous = int(candidate_indices[0])
+        max_cluster_gap = max(1, round(0.20 / frame_seconds))
+        for index in map(int, candidate_indices[1:]):
+            if index - previous > max_cluster_gap:
+                clusters.append((cluster_start, previous))
+                cluster_start = index
+            previous = index
+        clusters.append((cluster_start, previous))
 
     minimum = expected_duration_seconds - duration_tolerance_seconds
     maximum = expected_duration_seconds + duration_tolerance_seconds
     regions: list[ToneRegion] = []
-    for start, end in merged:
-        duration = (end - start) * frame_seconds
-        if minimum <= duration <= maximum:
-            regions.append(
-                ToneRegion(
-                    start_seconds=start * frame_seconds,
-                    end_seconds=end * frame_seconds,
-                    median_tone_to_guard_db=float(np.median(ratios[start:end])),
-                )
+
+    for cluster_start, cluster_end in clusters:
+        cluster_slice = slice(cluster_start, cluster_end + 1)
+        peak_index = cluster_start + int(np.argmax(coverage[cluster_slice]))
+
+        center_seconds = (peak_index + 0.5) * frame_seconds
+        start_seconds = max(0.0, center_seconds - expected_duration_seconds / 2)
+        end_seconds = min(
+            len(samples) / sample_rate,
+            start_seconds + expected_duration_seconds,
+        )
+        duration = end_seconds - start_seconds
+        if not minimum <= duration <= maximum:
+            continue
+
+        half_window = expected_frames // 2
+        ratio_start = max(0, peak_index - half_window)
+        ratio_end = min(frame_count, peak_index + half_window + 1)
+        regions.append(
+            ToneRegion(
+                start_seconds=start_seconds,
+                end_seconds=end_seconds,
+                median_tone_to_guard_db=float(
+                    np.median(ratios[ratio_start:ratio_end])
+                ),
             )
+        )
+
     return regions
 
 
@@ -116,7 +143,7 @@ def pair_tones(
 
 class SlateToneAnalyzer:
     id = "slate-tone"
-    version = "0.1.0"
+    version = "0.1.1"
     display_name = "Recording Slate (1 kHz)"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
@@ -129,26 +156,43 @@ class SlateToneAnalyzer:
             sample_rate,
             target_hz=float(parameters.get("frequency_hz", settings.slate_frequency_hz)),
             frequency_tolerance_hz=float(
-                parameters.get("frequency_tolerance_hz", settings.slate_frequency_tolerance_hz)
+                parameters.get(
+                    "frequency_tolerance_hz",
+                    settings.slate_frequency_tolerance_hz,
+                )
             ),
             expected_duration_seconds=float(
                 parameters.get(
-                    "expected_duration_seconds", settings.slate_expected_duration_seconds
+                    "expected_duration_seconds",
+                    settings.slate_expected_duration_seconds,
                 )
             ),
             duration_tolerance_seconds=float(
                 parameters.get(
-                    "duration_tolerance_seconds", settings.slate_duration_tolerance_seconds
+                    "duration_tolerance_seconds",
+                    settings.slate_duration_tolerance_seconds,
                 )
             ),
             min_tone_to_guard_db=float(
-                parameters.get("min_tone_to_guard_db", settings.slate_min_tone_to_guard_db)
+                parameters.get(
+                    "min_tone_to_guard_db",
+                    settings.slate_min_tone_to_guard_db,
+                )
+            ),
+            min_tone_to_broadband_ratio=float(
+                parameters.get(
+                    "min_tone_to_broadband_ratio",
+                    settings.slate_min_tone_to_broadband_ratio,
+                )
             ),
         )
 
         detections: list[Detection] = []
         for tone in tones:
-            confidence = max(0.0, min(1.0, (tone.median_tone_to_guard_db - 15.0) / 35.0))
+            confidence = max(
+                0.0,
+                min(1.0, (tone.median_tone_to_guard_db - 15.0) / 35.0),
+            )
             detections.append(
                 Detection(
                     start_seconds=tone.start_seconds,
@@ -160,12 +204,17 @@ class SlateToneAnalyzer:
                     - settings.slate_frequency_tolerance_hz,
                     frequency_high_hz=settings.slate_frequency_hz
                     + settings.slate_frequency_tolerance_hz,
-                    attributes={"median_tone_to_guard_db": tone.median_tone_to_guard_db},
+                    attributes={
+                        "median_tone_to_guard_db": tone.median_tone_to_guard_db
+                    },
                 )
             )
 
         max_pair_gap = float(
-            parameters.get("max_pair_gap_seconds", settings.slate_max_pair_gap_seconds)
+            parameters.get(
+                "max_pair_gap_seconds",
+                settings.slate_max_pair_gap_seconds,
+            )
         )
         for first, second in pair_tones(tones, max_pair_gap):
             detections.append(
@@ -180,4 +229,8 @@ class SlateToneAnalyzer:
                     },
                 )
             )
-        return sorted(detections, key=lambda item: (item.start_seconds, item.end_seconds))
+
+        return sorted(
+            detections,
+            key=lambda item: (item.start_seconds, item.end_seconds),
+        )
