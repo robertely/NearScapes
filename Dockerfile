@@ -14,7 +14,7 @@ COPY pyproject.toml README.md alembic.ini ./
 COPY backend ./backend
 COPY frontend ./frontend
 COPY migrations ./migrations
-RUN uv sync --no-dev
+RUN uv sync --no-dev --extra wildlife
 
 EXPOSE 8000
 CMD ["uvicorn", "nearscapes.main:app", "--host", "0.0.0.0", "--port", "8000"]
