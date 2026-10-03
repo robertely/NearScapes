@@ -1,6 +1,10 @@
+from nearscapes.analyzers.birdnet import BirdNetAnalyzer
 from nearscapes.analyzers.slate import SlateToneAnalyzer
 
-_ANALYZERS = {SlateToneAnalyzer.id: SlateToneAnalyzer()}
+_ANALYZERS = {
+    SlateToneAnalyzer.id: SlateToneAnalyzer(),
+    BirdNetAnalyzer.id: BirdNetAnalyzer(),
+}
 
 
 def list_analyzers() -> list[dict]:
