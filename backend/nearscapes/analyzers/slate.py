@@ -96,6 +96,10 @@ def detect_tones(
     regions: list[ToneRegion] = []
 
     for cluster_start, cluster_end in clusters:
+        cluster_duration = (cluster_end - cluster_start + 1) * frame_seconds
+        if not minimum <= cluster_duration <= maximum:
+            continue
+
         cluster_slice = slice(cluster_start, cluster_end + 1)
         peak_index = cluster_start + int(np.argmax(coverage[cluster_slice]))
 
