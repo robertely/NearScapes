@@ -59,6 +59,7 @@ function showSource() {
   const location = state.source.location;
   $("location").textContent = location ? `Location: ${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)} (${location.source})` : "Location: not present in embedded file metadata";
   $("run-slate").disabled = state.source.status !== "ready";
+  $("run-birdnet").disabled = state.source.status !== "ready";
 }
 
 async function refreshAll() {
@@ -184,22 +185,34 @@ function renderEvents() {
   }
 }
 
-async function runSlate() {
-  setStatus("Queueing slate detector…");
+async function runAnalyzer(analyzer, parameters, label) {
+  setStatus(`Queueing ${label}…`);
   const result = await api(`/api/sources/${state.source.id}/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ analyzer: "slate-tone", parameters: {} }),
+    body: JSON.stringify({ analyzer, parameters }),
   });
   const jobId = result.job.id;
   while (true) {
     await new Promise((resolve) => setTimeout(resolve, 700));
     const job = await api(`/api/jobs/${jobId}`);
-    setStatus(`Slate detector: ${job.status}`);
+    setStatus(`${label}: ${job.status}`);
     if (job.status === "complete") break;
     if (job.status === "failed") throw new Error(job.error || "Analysis failed");
   }
   await refreshAll();
+}
+
+async function runSlate() {
+  await runAnalyzer("slate-tone", {}, "Slate detector");
+}
+
+async function runBirdNet() {
+  await runAnalyzer(
+    "birdnet",
+    { backend: "onnx", precision: "fp16", confidence: 0.25, n_workers: 1 },
+    "BirdNET CPU",
+  );
 }
 
 $("file-input").addEventListener("change", (event) => {
@@ -218,6 +231,7 @@ dropZone.addEventListener("drop", (event) => {
   if (file) upload(file).catch((error) => setStatus(error.message, true));
 });
 $("run-slate").addEventListener("click", () => runSlate().catch((error) => setStatus(error.message, true)));
+$("run-birdnet").addEventListener("click", () => runBirdNet().catch((error) => setStatus(error.message, true)));
 $("refresh").addEventListener("click", () => refreshAll().catch((error) => setStatus(error.message, true)));
 $("waveform").addEventListener("click", (event) => {
   if (!state.source?.duration_seconds) return;
