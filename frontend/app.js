@@ -14,6 +14,8 @@ const state = {
   eventsByRun: new Map(),
   autoDownloadAudacity: false,
   wildlifeConfidence: initialWildlifeConfidence,
+  pendingFile: null,
+  uploadInProgress: false,
 };
 const $ = (id) => document.getElementById(id);
 
@@ -64,7 +66,24 @@ async function api(path, options = {}) {
   return response.json();
 }
 
+function stageFile(file) {
+  if (!file) return;
+  state.pendingFile = file;
+  $("selected-file").textContent = `${file.name} · ${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+  $("upload-button").disabled = false;
+  setStatus("Ready to upload");
+}
+
+function setUploadBusy(busy) {
+  state.uploadInProgress = busy;
+  $("upload-button").disabled = busy || !state.pendingFile;
+  $("file-input").disabled = busy;
+  $("upload-button").textContent = busy ? "Uploading…" : "Upload & Analyze";
+}
+
 async function upload(file) {
+  if (!file || state.uploadInProgress) return;
+  setUploadBusy(true);
   setStatus("Uploading…");
   state.autoDownloadAudacity = true;
   const form = new FormData();
@@ -76,6 +95,10 @@ async function upload(file) {
   if (state.source.status !== "ready") await waitForSource();
   await refreshAll(false);
   await waitForPipeline();
+  state.pendingFile = null;
+  $("selected-file").textContent = "No file selected";
+  $("file-input").value = "";
+  setUploadBusy(false);
 }
 
 async function waitForSource() {
@@ -415,21 +438,47 @@ wildlifeConfidenceInput.addEventListener("input", () => {
 
 renderWildlifeConfidence();
 
-$("file-input").addEventListener("change", (event) => {
-  const file = event.target.files[0];
-  if (file) upload(file).catch((error) => setStatus(error.message, true));
-});
+const fileInput = $("file-input");
+const uploadButton = $("upload-button");
 const dropZone = $("drop-zone");
+
+fileInput.addEventListener("change", (event) => {
+  stageFile(event.target.files?.[0]);
+});
+
+uploadButton.addEventListener("click", () => {
+  upload(state.pendingFile).catch((error) => {
+    setUploadBusy(false);
+    setStatus(error.message, true);
+  });
+});
+
+dropZone.addEventListener("click", (event) => {
+  if (event.target.closest("button, label, input")) return;
+  fileInput.click();
+});
+
 for (const eventName of ["dragenter", "dragover"]) {
-  dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.add("drag"); });
+  dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!state.uploadInProgress) dropZone.classList.add("drag");
+  });
 }
 for (const eventName of ["dragleave", "drop"]) {
-  dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.remove("drag"); });
+  dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dropZone.classList.remove("drag");
+  });
 }
 dropZone.addEventListener("drop", (event) => {
-  const file = event.dataTransfer.files[0];
-  if (file) upload(file).catch((error) => setStatus(error.message, true));
+  if (state.uploadInProgress) return;
+  stageFile(event.dataTransfer?.files?.[0]);
 });
+
+window.addEventListener("dragover", (event) => event.preventDefault());
+window.addEventListener("drop", (event) => event.preventDefault());
 $("run-slate").addEventListener("click", () => runSlate().catch((error) => setStatus(error.message, true)));
 $("run-birdnet").addEventListener("click", () => runBirdNet().catch((error) => setStatus(error.message, true)));
 $("refresh").addEventListener("click", () => refreshAll().catch((error) => setStatus(error.message, true)));
