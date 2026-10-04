@@ -27,9 +27,47 @@ def parse_announced_time(text: str) -> str | None:
     return f"{hour}:{minute:02d} {meridiem}M"
 
 
+_COORDINATE = r"(?:negative\s+|minus\s+|-)?\d{1,3}(?:\.\d+)"
+_LABELLED_LOCATION_RE = re.compile(
+    rf"""\blat(?:itude)?\s*(?:is\s*)?(?P<lat>{_COORDINATE})\s*[,;]?\s*"""
+    rf"""(?:and\s+)?(?:lon(?:gitude)?|long)\s*(?:is\s*)?(?P<lon>{_COORDINATE})""",
+    re.IGNORECASE,
+)
+_RECORDING_AT_LOCATION_RE = re.compile(
+    rf"""\brecording\s+at\s+(?P<lat>{_COORDINATE})\s*(?:,|and)\s*"""
+    rf"""(?P<lon>{_COORDINATE})""",
+    re.IGNORECASE,
+)
+
+
+def _coordinate_value(value: str) -> float:
+    normalized = value.strip().lower()
+    sign = -1.0 if normalized.startswith(("negative", "minus", "-")) else 1.0
+    normalized = re.sub(r"^(?:negative|minus)\s+", "", normalized)
+    normalized = normalized.removeprefix("-").strip()
+    return sign * float(normalized)
+
+
+def parse_opening_location(text: str) -> dict | None:
+    normalized = re.sub(r"(?<=\d)\s+(?:point|dot)\s+(?=\d)", ".", text, flags=re.IGNORECASE)
+    for pattern in (_LABELLED_LOCATION_RE, _RECORDING_AT_LOCATION_RE):
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        latitude = _coordinate_value(match.group("lat"))
+        longitude = _coordinate_value(match.group("lon"))
+        if -90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0:
+            return {
+                "latitude": latitude,
+                "longitude": longitude,
+                "source": "opening-slate",
+            }
+    return None
+
+
 class SlateTranscriptAnalyzer:
     id = "slate-transcript"
-    version = "0.2.0"
+    version = "0.3.0"
     display_name = "Slate Speech Transcript"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
@@ -91,6 +129,9 @@ class SlateTranscriptAnalyzer:
 
                 boundary = str(window.get("boundary", "slate"))
                 announced_time = None
+                opening_location = (
+                    parse_opening_location(text) if boundary == "opening-slate" else None
+                )
                 category = "slate-transcript"
                 label = "Opening slate transcript"
 
@@ -111,6 +152,7 @@ class SlateTranscriptAnalyzer:
                         attributes={
                             "boundary": boundary,
                             "announced_time": announced_time,
+                            "location": opening_location,
                             "model": payload.get("model", model),
                             "language": payload.get("language", language),
                             "backend": "mlx-whisper",
