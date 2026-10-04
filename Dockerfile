@@ -18,7 +18,7 @@ COPY pyproject.toml README.md alembic.ini ./
 COPY backend ./backend
 COPY frontend ./frontend
 COPY migrations ./migrations
-RUN uv sync --no-dev --extra wildlife
+RUN uv sync --no-dev --extra wildlife --extra cpu-asr
 
 FROM python:3.12-slim-trixie AS audacity
 
