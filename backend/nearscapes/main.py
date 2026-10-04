@@ -24,6 +24,7 @@ from nearscapes.pipeline import (
     maybe_queue_audacity_export,
     queue_upload_analysis,
     resume_upload_pipeline,
+    upload_pipeline_status,
 )
 from nearscapes.storage.local import LocalStorage
 
@@ -209,6 +210,13 @@ def get_audacity_status(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
+
+    analysis = upload_pipeline_status(source_id)
+    if not analysis["complete"]:
+        resume_upload_pipeline(source_id)
+        analysis = upload_pipeline_status(source_id)
+        db.refresh(source)
+
     path = storage.audacity_project_path(source.sha256, source.filename)
     job = db.scalar(
         select(Job)
@@ -217,6 +225,7 @@ def get_audacity_status(source_id: str, db: DbSession) -> dict:
     )
     return {
         "ready": path.exists(),
+        "analysis": analysis,
         "job": (
             {
                 "id": job.id,
