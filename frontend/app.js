@@ -164,21 +164,48 @@ async function waitForPipeline() {
     const pending = state.runs.filter(
       (run) => !["complete", "failed"].includes(run.status),
     );
-    if (status.ready && !pending.length) {
+    const analysis = status.analysis || {};
+
+    if (analysis.complete) {
       state.source = await api(`/api/sources/${state.source.id}`);
       showSource();
-      setStatus("Analysis complete · Audacity project ready");
-      return;
+      setStatus(
+        status.ready
+          ? "Analysis complete · Audacity project ready"
+          : "Analysis complete · preparing Audacity project…",
+      );
+      if (status.ready) return;
     }
+
     if (status.job?.status === "failed") {
       throw new Error(`Audacity export failed: ${status.job.error || "unknown error"}`);
     }
-    if (pending.length) {
+
+    if (!analysis.location_ready) {
+      if (
+        analysis.slate_transcript_status === "queued" ||
+        analysis.slate_transcript_status === "running"
+      ) {
+        setStatus("Transcribing opening slate…");
+      } else if (analysis.slate_transcript_status === "failed") {
+        setStatus("Opening slate transcription failed", true);
+      } else {
+        setStatus("Waiting for opening slate transcription…");
+      }
+    } else if (!analysis.birdnet_location_filtered) {
+      if (analysis.birdnet_status === "queued" || analysis.birdnet_status === "running") {
+        setStatus("Running location-filtered BirdNET…");
+      } else if (analysis.birdnet_status === "failed") {
+        setStatus("Location-filtered BirdNET failed", true);
+      } else {
+        setStatus("Waiting for location-filtered BirdNET…");
+      }
+    } else if (pending.length) {
       setStatus(`Analyzing ${pending.map((run) => run.analyzer).join(", ")}…`);
     } else if (status.job) {
       setStatus(`Creating Audacity project: ${status.job.status}…`);
     } else {
-      setStatus("Waiting for automatic analysis…");
+      setStatus("Finishing analysis…");
     }
   }
 }
