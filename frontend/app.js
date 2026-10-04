@@ -30,8 +30,8 @@ async function upload(file) {
   state.source = result.source;
   showSource();
   if (state.source.status !== "ready") await waitForSource();
-  await refreshAll();
-  if (!state.runs.length) await runSlate();
+  await refreshAll(false);
+  await waitForPipeline();
 }
 
 async function waitForSource() {
@@ -56,13 +56,16 @@ function showSource() {
   $("metadata").textContent = bits.join(" · ") || state.source.status;
   $("audio").src = `/api/sources/${state.source.id}/audio`;
   $("analysis-json").href = `/api/sources/${state.source.id}/analysis`;
+  const audacity = $("audacity-project");
+  audacity.href = `/api/sources/${state.source.id}/audacity-project`;
+  audacity.classList.toggle("hidden", !state.source.audacity_project_ready);
   const location = state.source.location;
   $("location").textContent = location ? `Location: ${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)} (${location.source})` : "Location: not present in embedded file metadata";
   $("run-slate").disabled = state.source.status !== "ready";
   $("run-birdnet").disabled = state.source.status !== "ready";
 }
 
-async function refreshAll() {
+async function refreshAll(showReady = true) {
   if (!state.source) return;
   state.source = await api(`/api/sources/${state.source.id}`);
   showSource();
@@ -78,7 +81,32 @@ async function refreshAll() {
     drawTimeline();
     renderRuns();
     renderEvents();
-    setStatus("Ready");
+    if (showReady) setStatus("Ready");
+  }
+}
+
+async function waitForPipeline() {
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await refreshAll(false);
+    const status = await api(`/api/sources/${state.source.id}/audacity-status`);
+    if (status.ready) {
+      state.source = await api(`/api/sources/${state.source.id}`);
+      showSource();
+      setStatus("Analysis complete · Audacity project ready");
+      return;
+    }
+    if (status.job?.status === "failed") {
+      throw new Error(`Audacity export failed: ${status.job.error || "unknown error"}`);
+    }
+    const pending = state.runs.filter((run) => !["complete", "failed"].includes(run.status));
+    if (pending.length) {
+      setStatus(`Analyzing ${pending.map((run) => run.analyzer).join(", ")}…`);
+    } else if (status.job) {
+      setStatus(`Creating Audacity project: ${status.job.status}…`);
+    } else {
+      setStatus("Waiting for automatic analysis…");
+    }
   }
 }
 
@@ -200,7 +228,9 @@ async function runAnalyzer(analyzer, parameters, label) {
     if (job.status === "complete") break;
     if (job.status === "failed") throw new Error(job.error || "Analysis failed");
   }
-  await refreshAll();
+  await api(`/api/sources/${state.source.id}/audacity-project`, { method: "POST" });
+  await refreshAll(false);
+  await waitForPipeline();
 }
 
 async function runSlate() {
