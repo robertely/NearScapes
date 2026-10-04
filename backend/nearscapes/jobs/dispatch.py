@@ -1,15 +1,19 @@
 from nearscapes.config import get_settings
 
 
-def dispatch_ingest(job_id: str, source_id: str) -> None:
+def dispatch_ingest(
+    job_id: str,
+    source_id: str,
+    analyzer_parameter_overrides: dict[str, dict] | None = None,
+) -> None:
     if get_settings().queue_mode == "inline":
         from nearscapes.jobs.work import ingest_source_impl
 
-        ingest_source_impl(job_id, source_id)
+        ingest_source_impl(job_id, source_id, analyzer_parameter_overrides)
         return
     from nearscapes.jobs.tasks import ingest_source
 
-    ingest_source.send(job_id, source_id)
+    ingest_source.send(job_id, source_id, analyzer_parameter_overrides)
 
 
 def dispatch_analysis(job_id: str, run_id: str) -> None:
