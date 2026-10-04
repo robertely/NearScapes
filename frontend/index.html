@@ -26,12 +26,27 @@
       <div class="source-heading">
         <div>
           <h2 id="filename"></h2>
-          <div id="metadata" class="metadata"></div><div id="location" class="metadata"></div>
+          <div id="metadata" class="metadata"></div>
         </div>
         <div class="actions"><button id="run-slate" disabled>Rerun 1 kHz slate detector</button><label class="confidence-control" for="birdnet-confidence"><span>Wildlife confidence</span><input id="birdnet-confidence" type="range" min="0.25" max="0.95" step="0.05" value="0.60"><output id="birdnet-confidence-value" for="birdnet-confidence">60%</output></label><button id="run-birdnet" disabled>Rerun BirdNET wildlife</button><a id="analysis-json" class="button-link" href="#" target="_blank">Analysis JSON</a><a id="audacity-project" class="button-link hidden" href="#" download>Audacity project (.aup3)</a></div>
       </div>
 
       <audio id="audio" controls preload="metadata"></audio>
+
+      <section class="recording-summary" aria-label="Recording summary">
+        <article class="summary-card">
+          <h3>Location</h3>
+          <div id="summary-location" class="summary-value">Not found</div>
+        </article>
+        <article class="summary-card">
+          <h3>Top birds</h3>
+          <div id="summary-birds" class="summary-list">No wildlife detections yet.</div>
+        </article>
+        <article class="summary-card summary-notes">
+          <h3>Slate notes</h3>
+          <div id="summary-notes" class="summary-list">No slate notes found.</div>
+        </article>
+      </section>
 
       <div class="timeline-shell">
         <canvas id="waveform"></canvas>
