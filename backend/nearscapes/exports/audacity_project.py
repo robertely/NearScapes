@@ -81,39 +81,31 @@ class AudacityPipe:
         )
 
     def bootstrap_module(self) -> None:
-        process = self._launch()
-        try:
-            deadline = time.monotonic() + settings.audacity_start_timeout_seconds
-            config_path: Path | None = None
-            while time.monotonic() < deadline:
-                for candidate in self.home.rglob("*.cfg"):
-                    try:
-                        text = candidate.read_text(errors="ignore")
-                    except OSError:
-                        continue
-                    if "mod-script-pipe" in text:
-                        config_path = candidate
-                        break
-                if config_path:
-                    break
-                if process.poll() is not None:
-                    break
-                time.sleep(0.25)
-        finally:
-            _stop_process(process)
-            if self.log_handle:
-                self.log_handle.close()
-                self.log_handle = None
+        module_path = Path("/usr/lib/audacity/modules/mod-script-pipe.so")
+        if not module_path.exists():
+            candidates = list(Path("/usr/lib").glob("**/mod-script-pipe.so"))
+            if not candidates:
+                raise RuntimeError("mod-script-pipe.so is not installed")
+            module_path = candidates[0]
 
-        if not config_path:
-            raise RuntimeError("Audacity did not discover mod-script-pipe during bootstrap")
+        config_path = self.home / ".config" / "audacity" / "audacity.cfg"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
 
         parser = configparser.RawConfigParser(strict=False)
         parser.optionxform = str
-        parser.read(config_path)
-        if not parser.has_section("Module"):
-            parser.add_section("Module")
+        if config_path.exists():
+            parser.read(config_path)
+        for section in ("Module", "ModulePath", "ModuleDateTime"):
+            if not parser.has_section(section):
+                parser.add_section(section)
+
         parser.set("Module", "mod-script-pipe", "1")
+        parser.set("ModulePath", "mod-script-pipe", str(module_path))
+        modified = datetime.fromtimestamp(module_path.stat().st_mtime).strftime(
+            "%Y-%m-%dT%H:%M:%S"
+        )
+        parser.set("ModuleDateTime", "mod-script-pipe", modified)
+
         with config_path.open("w") as handle:
             parser.write(handle, space_around_delimiters=False)
 
