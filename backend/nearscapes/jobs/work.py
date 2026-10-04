@@ -37,7 +37,11 @@ def _fail_job(job_id: str, message: str) -> None:
             db.commit()
 
 
-def ingest_source_impl(job_id: str, source_id: str) -> None:
+def ingest_source_impl(
+    job_id: str,
+    source_id: str,
+    analyzer_parameter_overrides: dict[str, dict] | None = None,
+) -> None:
     storage = LocalStorage()
     try:
         with SessionLocal() as db:
@@ -82,7 +86,7 @@ def ingest_source_impl(job_id: str, source_id: str) -> None:
             job.finished_at = _now()
             db.commit()
 
-        queue_upload_analysis(source_id)
+        queue_upload_analysis(source_id, analyzer_parameter_overrides)
     except Exception as exc:
         logger.exception(
             "source ingestion failed", extra={"job_id": job_id, "source_id": source_id}
