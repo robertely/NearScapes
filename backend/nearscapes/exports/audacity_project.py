@@ -51,8 +51,9 @@ def _stop_process(process: subprocess.Popen) -> None:
 
 
 class AudacityPipe:
-    def __init__(self, home: Path) -> None:
+    def __init__(self, home: Path, initial_audio: Path | None = None) -> None:
         self.home = home
+        self.initial_audio = initial_audio
         self.uid = os.getuid()
         self.to_pipe = Path(f"/tmp/audacity_script_pipe.to.{self.uid}")
         self.from_pipe = Path(f"/tmp/audacity_script_pipe.from.{self.uid}")
@@ -81,14 +82,17 @@ class AudacityPipe:
     def _launch(self) -> subprocess.Popen:
         log_path = self.home / "audacity.log"
         self.log_handle = log_path.open("ab")
+        command = [
+            "xvfb-run",
+            "-a",
+            "-s",
+            "-screen 0 1280x1024x24",
+            "audacity",
+        ]
+        if self.initial_audio is not None:
+            command.append(str(self.initial_audio))
         return subprocess.Popen(
-            [
-                "xvfb-run",
-                "-a",
-                "-s",
-                "-screen 0 1280x1024x24",
-                "audacity",
-            ],
+            command,
             env=self.env,
             stdout=self.log_handle,
             stderr=subprocess.STDOUT,
@@ -159,10 +163,25 @@ class AudacityPipe:
         while time.monotonic() < deadline:
             response = self.command("Help: Command=Help")
             if response.strip():
+                break
+            time.sleep(0.25)
+        else:
+            raise TimeoutError(
+                "Audacity scripting pipes opened, but the command loop never became ready:\n"
+                + self._log_tail()
+            )
+
+        if self.initial_audio is None:
+            return
+
+        deadline = time.monotonic() + settings.audacity_start_timeout_seconds
+        while time.monotonic() < deadline:
+            response = self.command("GetInfo: Type=Tracks Format=JSON")
+            if '"kind"' in response:
                 return
             time.sleep(0.25)
         raise TimeoutError(
-            "Audacity scripting pipes opened, but the command loop never became ready:\n"
+            "Audacity started, but the initial audio track never became ready:\n"
             + self._log_tail()
         )
 
@@ -232,6 +251,19 @@ def _event_label(event: Event) -> str:
     return _clean_label(text)[:240]
 
 
+def _audacity_input_path(source: SourceRecording, temp_root: Path) -> Path:
+    source_path = Path(source.storage_path)
+    suffix = Path(source.filename).suffix.lower() or source_path.suffix.lower()
+    if source_path.suffix.lower() == suffix and suffix:
+        return source_path
+    if not suffix:
+        return source_path
+
+    alias = temp_root / f"source{suffix}"
+    alias.symlink_to(source_path)
+    return alias
+
+
 def build_audacity_project(
     source: SourceRecording,
     runs: list[tuple[AnalysisRun, list[Event]]],
@@ -242,14 +274,15 @@ def build_audacity_project(
     temporary_output.unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="nearscapes-audacity-") as temp:
-        home = Path(temp) / "home"
+        temp_root = Path(temp)
+        home = temp_root / "home"
         home.mkdir(parents=True)
-        pipe = AudacityPipe(home)
+        input_path = _audacity_input_path(source, temp_root)
+        pipe = AudacityPipe(home, initial_audio=input_path)
         try:
             pipe.bootstrap_module()
             pipe.start()
 
-            pipe.command(f"Import2: Filename={_quoted(str(Path(source.storage_path)))}")
             pipe.command("SelectTracks: Track=0 TrackCount=1 Mode=Set")
             pipe.command(
                 f"SetTrackStatus: Name={_quoted(_clean_label(source.filename))} "
