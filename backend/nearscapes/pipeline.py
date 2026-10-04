@@ -177,8 +177,12 @@ def build_slate_transcription_windows(
 
 def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
     settings = get_settings()
-    if settings.accelerator.lower() not in {"metal", "mps"}:
-        return None
+    accelerator = settings.accelerator.lower()
+    transcription_model = (
+        settings.slate_transcription_model
+        if accelerator in {"metal", "mps"}
+        else settings.slate_transcription_cpu_model
+    )
 
     dispatch: tuple[str, str] | None = None
     with SessionLocal() as db:
@@ -229,7 +233,7 @@ def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
                 "source_slate_run_id": slate_run_id,
                 "windows": windows,
                 "sample_rate": settings.slate_transcription_sample_rate,
-                "model": settings.slate_transcription_model,
+                "model": transcription_model,
                 "language": settings.slate_transcription_language,
                 _BIRDNET_PARAMETERS: dict(
                     (slate_run.parameters or {}).get(_BIRDNET_PARAMETERS, {})
@@ -395,32 +399,23 @@ def advance_upload_pipeline(
             None,
         )
 
-    transcript_required = settings.accelerator.lower() in {"metal", "mps"}
-    if transcript_required:
-        transcript_analyzer = get_analyzer(_SLATE_TRANSCRIPT_ANALYZER)
-        if transcript_run and transcript_run.status in {"queued", "running"}:
-            return transcript_run.id
-        if transcript_run and transcript_run.status == "failed":
-            return transcript_run.id
-        if (
-            transcript_run is None
-            or transcript_run.analyzer_version != transcript_analyzer.version
-        ):
-            return queue_slate_transcription(source_id, completed_slate.id)
-        if transcript_run.status != "complete":
-            return transcript_run.id
+    transcript_analyzer = get_analyzer(_SLATE_TRANSCRIPT_ANALYZER)
+    if transcript_run and transcript_run.status in {"queued", "running"}:
+        return transcript_run.id
+    if transcript_run and transcript_run.status == "failed":
+        return transcript_run.id
+    if (
+        transcript_run is None
+        or transcript_run.analyzer_version != transcript_analyzer.version
+    ):
+        return queue_slate_transcription(source_id, completed_slate.id)
+    if transcript_run.status != "complete":
+        return transcript_run.id
 
-        location = backfill_location_from_opening_slate(source_id)
-        if not location:
-            return transcript_run.id
-        upstream_run_id = transcript_run.id
-    else:
-        with SessionLocal() as db:
-            source = db.get(SourceRecording, source_id)
-            location = (source.embedded_metadata or {}).get("location") if source else None
-        if not location:
-            return completed_slate.id
-        upstream_run_id = completed_slate.id
+    location = backfill_location_from_opening_slate(source_id)
+    if not location:
+        return transcript_run.id
+    upstream_run_id = transcript_run.id
 
     with SessionLocal() as db:
         runs = db.scalars(
@@ -457,7 +452,6 @@ def resume_upload_pipeline(source_id: str) -> str | None:
 
 def upload_pipeline_status(source_id: str) -> dict:
     """Return explicit serial pipeline stage state for the UI."""
-    settings = get_settings()
     backfill_location_from_opening_slate(source_id)
 
     with SessionLocal() as db:
@@ -498,7 +492,6 @@ def upload_pipeline_status(source_id: str) -> dict:
         )
 
         location = (source.embedded_metadata or {}).get("location")
-        transcript_required = settings.accelerator.lower() in {"metal", "mps"}
 
         ingest_status = (
             "complete"
@@ -511,12 +504,7 @@ def upload_pipeline_status(source_id: str) -> dict:
         )
         slate_status = slate_run.status if slate_run else "pending"
 
-        if transcript_required:
-            transcript_status = transcript_run.status if transcript_run else "pending"
-        elif location:
-            transcript_status = "skipped"
-        else:
-            transcript_status = "blocked"
+        transcript_status = transcript_run.status if transcript_run else "pending"
 
         if location:
             location_status = "complete"
@@ -563,10 +551,8 @@ def upload_pipeline_status(source_id: str) -> dict:
             and birdnet_run
             and birdnet_run.status == "complete"
             and birdnet_location_filtered
-            and (
-                not transcript_required
-                or (transcript_run and transcript_run.status == "complete")
-            )
+            and transcript_run
+            and transcript_run.status == "complete"
         )
 
         return {
