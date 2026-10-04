@@ -71,6 +71,7 @@ jobs:
               for event in events
           ), "Reference recording did not produce an expected bird-family detection"
           PY
+      # Export the downloaded model so recordings can be validated outside CI.
       - name: Export BirdNET model cache for local validation
         uses: actions/upload-artifact@v4
         with:
