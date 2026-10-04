@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     slate_transcription_post_seconds: float = 30.0
     slate_transcription_sample_rate: int = 16000
     slate_transcription_model: str = "mlx-community/whisper-large-v3-turbo"
-    slate_transcription_cpu_model: str = "turbo"
+    slate_transcription_cpu_model: str = "large-v3"
     slate_transcription_language: str = "en"
 
     audacity_command_timeout_seconds: float = 30.0
