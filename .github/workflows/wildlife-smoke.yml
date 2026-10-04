@@ -102,3 +102,16 @@ jobs:
           path: /tmp/onnxruntime-wheels
           retention-days: 1
           compression-level: 0
+
+      - name: Fetch North America West BirdNET index
+        run: |
+          curl -L --fail --retry 3 \
+            -o /tmp/north-america-west-indices.txt \
+            https://huggingface.co/tphakala/BirdNET-v3.0-Models/resolve/main/regional/north-america-west/birdnet-v3.0-preview3.1-north-america-west-indices-b1.txt
+          sha256sum /tmp/north-america-west-indices.txt
+      - name: Export North America West filter
+        uses: actions/upload-artifact@v4
+        with:
+          name: birdnet-north-america-west-indices
+          path: /tmp/north-america-west-indices.txt
+          retention-days: 1
