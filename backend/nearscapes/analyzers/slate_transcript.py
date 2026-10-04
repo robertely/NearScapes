@@ -133,9 +133,38 @@ def parse_opening_location(text: str) -> dict | None:
     return None
 
 
+_RECORDING_METADATA_FIELDS = {
+    "microphone": ("microphone",),
+}
+
+
+def parse_recording_metadata(text: str) -> dict:
+    """Extract explicitly labelled recording metadata from natural speech."""
+    normalized = re.sub(r"[ \t]+", " ", text).strip()
+    extracted: dict[str, str] = {}
+
+    for field, labels in _RECORDING_METADATA_FIELDS.items():
+        alternatives = "|".join(re.escape(label) for label in labels)
+        pattern = re.compile(
+            rf"""\b(?:{alternatives})\b\s*"""
+            rf"""(?:(?:is|was|using|used|model(?:\s+is)?)\s+|[:=\-]\s*)?"""
+            rf"""(?P<value>[^.;\n]+)""",
+            re.IGNORECASE,
+        )
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        value = match.group("value").strip(" ,:-")
+        value = re.sub(r"^(?:a|an|the)\s+", "", value, flags=re.IGNORECASE)
+        if value:
+            extracted[field] = value
+
+    return extracted
+
+
 class SlateTranscriptAnalyzer:
     id = "slate-transcript"
-    version = "0.5.0"
+    version = "0.6.0"
     display_name = "Slate Speech Transcript"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
@@ -184,10 +213,15 @@ class SlateTranscriptAnalyzer:
             opening_location = (
                 parse_opening_location(text) if boundary == "opening-slate" else None
             )
+            recording_metadata = None
             category = "slate-transcript"
             label = "Opening slate transcript"
 
-            if boundary == "note-slate-candidate":
+            if boundary == "recording-metadata":
+                recording_metadata = parse_recording_metadata(text)
+                category = "recording-metadata-transcript"
+                label = "Recording metadata transcript"
+            elif boundary == "note-slate-candidate":
                 announced_time = parse_announced_time(text)
                 if announced_time is None:
                     continue
@@ -205,6 +239,7 @@ class SlateTranscriptAnalyzer:
                         "boundary": boundary,
                         "announced_time": announced_time,
                         "location": opening_location,
+                        "recording_metadata": recording_metadata,
                         "model": payload.get("model", model),
                         "language": payload.get("language", language),
                         "backend": payload.get("backend"),
