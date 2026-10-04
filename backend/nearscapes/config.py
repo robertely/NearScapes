@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     slate_duration_tolerance_seconds: float = 0.5
     slate_min_tone_to_guard_db: float = 25.0
     slate_min_tone_to_broadband_ratio: float = 0.03
-    slate_max_pair_gap_seconds: float = 60.0
+    slate_max_pair_gap_seconds: float = 25.0
     slate_transcription_post_seconds: float = 30.0
     slate_transcription_sample_rate: int = 16000
     slate_transcription_model: str = "mlx-community/whisper-large-v3-turbo"
