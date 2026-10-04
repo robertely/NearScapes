@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import httpx
 import numpy as np
 
@@ -8,9 +10,27 @@ from nearscapes.audio.pcm import ensure_mono_pcm, load_pcm
 from nearscapes.config import get_settings
 
 
+_TIME_RE = re.compile(
+    r"""^\s*(?:(?:the\s+)?time\s+is\s+)?(?P<hour>1[0-2]|0?[1-9])"""
+    r"""(?:\s*[:.]\s*|\s+)(?P<minute>[0-5]\d)\s*"""
+    r"""(?P<meridiem>[ap])\.?\s*m\.?\b""",
+    re.IGNORECASE,
+)
+
+
+def parse_announced_time(text: str) -> str | None:
+    match = _TIME_RE.match(text)
+    if not match:
+        return None
+    hour = int(match.group("hour"))
+    minute = int(match.group("minute"))
+    meridiem = match.group("meridiem").upper()
+    return f"{hour}:{minute:02d} {meridiem}M"
+
+
 class SlateTranscriptAnalyzer:
     id = "slate-transcript"
-    version = "0.1.0"
+    version = "0.2.0"
     display_name = "Slate Speech Transcript"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
@@ -70,15 +90,28 @@ class SlateTranscriptAnalyzer:
                 if not text:
                     continue
 
+                boundary = str(window.get("boundary", "slate"))
+                announced_time = None
+                category = "slate-transcript"
+                label = "Opening slate transcript"
+
+                if boundary == "note-slate-candidate":
+                    announced_time = parse_announced_time(text)
+                    if announced_time is None:
+                        continue
+                    category = "slate-note"
+                    label = announced_time
+
                 detections.append(
                     Detection(
                         start_seconds=start_seconds,
                         end_seconds=end_seconds,
-                        category="speech-transcript",
-                        label="Speech transcript",
+                        category=category,
+                        label=label,
                         text=text,
                         attributes={
-                            "boundary": window.get("boundary", "slate"),
+                            "boundary": boundary,
+                            "announced_time": announced_time,
                             "model": payload.get("model", model),
                             "language": payload.get("language", language),
                             "backend": "mlx-whisper",
