@@ -15,6 +15,7 @@ const state = {
   wildlifeConfidence: initialWildlifeConfidence,
   pendingFile: null,
   uploadInProgress: false,
+  analysisComplete: false,
 };
 const $ = (id) => document.getElementById(id);
 
@@ -83,20 +84,25 @@ function setUploadBusy(busy) {
 async function upload(file) {
   if (!file || state.uploadInProgress) return;
   setUploadBusy(true);
+  state.analysisComplete = false;
   setStatus("Uploading…");
   const form = new FormData();
   form.append("file", file);
   form.append("birdnet_confidence", state.wildlifeConfidence.toFixed(2));
   const result = await api("/api/sources", { method: "POST", body: form });
   state.source = result.source;
+  const sourceId = state.source.id;
   showSource();
   if (state.source.status !== "ready") await waitForSource();
   await refreshAll(false);
-  await waitForPipeline();
+
   state.pendingFile = null;
   $("selected-file").textContent = "No file selected";
   $("file-input").value = "";
   setUploadBusy(false);
+
+  setStatus("Starting analysis…");
+  await waitForPipeline(sourceId);
 }
 
 async function waitForSource() {
@@ -128,7 +134,10 @@ function showSource() {
   $("analysis-json").href = `/api/sources/${state.source.id}/analysis`;
   const audacity = $("audacity-project");
   audacity.href = `/api/sources/${state.source.id}/audacity-project`;
-  audacity.classList.toggle("hidden", !state.source.audacity_project_ready);
+  audacity.classList.toggle(
+    "hidden",
+    !state.analysisComplete || !state.source.audacity_project_ready,
+  );
   renderSummary();
   $("run-slate").disabled = state.source.status !== "ready";
   $("run-birdnet").disabled =
@@ -156,18 +165,20 @@ async function refreshAll(showReady = true) {
   }
 }
 
-async function waitForPipeline() {
+async function waitForPipeline(sourceId) {
   while (true) {
+    if (!state.source || state.source.id !== sourceId) return;
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await refreshAll(false);
-    const status = await api(`/api/sources/${state.source.id}/audacity-status`);
+    const status = await api(`/api/sources/${sourceId}/audacity-status`);
     const pending = state.runs.filter(
       (run) => !["complete", "failed"].includes(run.status),
     );
     const analysis = status.analysis || {};
+    state.analysisComplete = Boolean(analysis.complete);
 
     if (analysis.complete) {
-      state.source = await api(`/api/sources/${state.source.id}`);
+      state.source = await api(`/api/sources/${sourceId}`);
       showSource();
       setStatus(
         status.ready
@@ -463,7 +474,7 @@ async function runAnalyzer(analyzer, parameters, label) {
   }
   await api(`/api/sources/${state.source.id}/audacity-project`, { method: "POST" });
   await refreshAll(false);
-  await waitForPipeline();
+  await waitForPipeline(state.source.id);
 }
 
 async function runSlate() {
