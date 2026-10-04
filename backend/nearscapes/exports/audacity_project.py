@@ -114,7 +114,15 @@ class AudacityPipe:
         parser.optionxform = str
         if config_path.exists():
             parser.read(config_path)
-        for section in ("Module", "ModulePath", "ModuleDateTime", "GUI", "Effects"):
+        for section in (
+            "Module",
+            "ModulePath",
+            "ModuleDateTime",
+            "GUI",
+            "Effects",
+            "Warnings",
+            "FileFormats",
+        ):
             if not parser.has_section(section):
                 parser.add_section(section)
 
@@ -123,6 +131,8 @@ class AudacityPipe:
         # the GUI thread to execute a command.
         parser.set("GUI", "ShowSplashScreen", "0")
         parser.set("Effects", "SkipEffectsScanAtStartup", "1")
+        parser.set("Warnings", "FirstProjectSave", "0")
+        parser.set("FileFormats", "SaveProjectWithDependencies", "copy")
 
         parser.set("Module", "mod-script-pipe", "1")
         parser.set("ModulePath", "mod-script-pipe", str(module_path))
