@@ -1,3 +1,5 @@
+import os
+import tempfile
 from pathlib import Path
 
 from nearscapes.config import get_settings
@@ -9,7 +11,8 @@ class LocalStorage:
         self.sources = self.root / "sources"
         self.cache = self.root / "cache"
         self.exports = self.root / "exports"
-        for path in (self.sources, self.cache, self.exports):
+        self.tmp = self.root / "tmp"
+        for path in (self.sources, self.cache, self.exports, self.tmp):
             path.mkdir(parents=True, exist_ok=True)
 
     def source_path(self, sha256: str) -> Path:
@@ -21,3 +24,9 @@ class LocalStorage:
         directory = self.cache / sha256[:2] / sha256
         directory.mkdir(parents=True, exist_ok=True)
         return directory
+
+    def create_upload_temp(self) -> Path:
+        """Create upload scratch space on the same filesystem as persistent storage."""
+        fd, name = tempfile.mkstemp(prefix="nearscapes-upload-", dir=self.tmp)
+        os.close(fd)
+        return Path(name)
