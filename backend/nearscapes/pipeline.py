@@ -129,6 +129,7 @@ def build_slate_transcription_windows(
     *,
     source_duration_seconds: float,
     post_seconds: float,
+    recording_metadata_seconds: float = 60.0,
 ) -> list[dict]:
     markers = sorted(
         (event for event in events if event.category == "slate-marker"),
@@ -153,11 +154,29 @@ def build_slate_transcription_windows(
                 }
             )
 
+        closing_marker_index: int | None = None
         for index, marker_event in enumerate(markers):
             if abs(marker_event.end_seconds - region.start_seconds) <= tolerance_seconds:
                 used_markers.add(index)
             if abs(marker_event.start_seconds - region.end_seconds) <= tolerance_seconds:
                 used_markers.add(index)
+                closing_marker_index = index
+
+        if closing_marker_index is not None:
+            closing_marker = markers[closing_marker_index]
+            metadata_start = float(closing_marker.end_seconds)
+            metadata_end = min(
+                source_duration_seconds,
+                metadata_start + recording_metadata_seconds,
+            )
+            if metadata_end - metadata_start >= 0.1:
+                windows.append(
+                    {
+                        "start_seconds": metadata_start,
+                        "end_seconds": metadata_end,
+                        "boundary": "recording-metadata",
+                    }
+                )
 
     for index, marker_event in enumerate(markers):
         if index in used_markers:
@@ -223,6 +242,7 @@ def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
             list(events),
             source_duration_seconds=float(source.duration_seconds or 0.0),
             post_seconds=settings.slate_transcription_post_seconds,
+            recording_metadata_seconds=settings.slate_recording_metadata_seconds,
         )
 
         run = AnalysisRun(
@@ -530,7 +550,7 @@ def upload_pipeline_status(source_id: str) -> dict:
             {"id": "slate-tone", "label": "Detect slate beeps", "status": slate_status},
             {
                 "id": "slate-transcript",
-                "label": "Transcribe opening slate",
+                "label": "Transcribe slate and recording metadata",
                 "status": transcript_status,
             },
             {"id": "location", "label": "Resolve location", "status": location_status},
