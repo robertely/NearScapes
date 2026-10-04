@@ -12,7 +12,6 @@ const state = {
   waveform: null,
   runs: [],
   eventsByRun: new Map(),
-  autoDownloadAudacity: false,
   wildlifeConfidence: initialWildlifeConfidence,
   pendingFile: null,
   uploadInProgress: false,
@@ -85,7 +84,6 @@ async function upload(file) {
   if (!file || state.uploadInProgress) return;
   setUploadBusy(true);
   setStatus("Uploading…");
-  state.autoDownloadAudacity = true;
   const form = new FormData();
   form.append("file", file);
   form.append("birdnet_confidence", state.wildlifeConfidence.toFixed(2));
@@ -170,15 +168,6 @@ async function waitForPipeline() {
       state.source = await api(`/api/sources/${state.source.id}`);
       showSource();
       setStatus("Analysis complete · Audacity project ready");
-      if (state.autoDownloadAudacity) {
-        state.autoDownloadAudacity = false;
-        const link = document.createElement("a");
-        link.href = `/api/sources/${state.source.id}/audacity-project`;
-        link.download = "";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }
       return;
     }
     if (status.job?.status === "failed") {
