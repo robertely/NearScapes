@@ -78,12 +78,18 @@ def parse_announced_time(text: str) -> str | None:
 
 
 _COORDINATE = r"(?:negative\s+|minus\s+|-)?\d{1,3}(?:\.\d+)"
+# Whisper sometimes inserts spaces inside a spoken decimal, e.g. "39.7 989".
+# Be tolerant only for explicitly labelled latitude/longitude so an unlabeled
+# positive coordinate pair cannot be accidentally concatenated.
+_LABELLED_COORDINATE = (
+    r"(?:negative\s+|minus\s+|-)?\d{1,3}(?:\.\d(?:[ \t]*\d)*)"
+)
 _COORDINATE_SUFFIX = r"(?:\s*degrees?)?"
 _LABELLED_LOCATION_RE = re.compile(
     rf"""\blat(?:itude)?\s*(?:(?:is|of|equals?)\s*)?"""
-    rf"""(?P<lat>{_COORDINATE}){_COORDINATE_SUFFIX}\s*[,;/]?\s*"""
+    rf"""(?P<lat>{_LABELLED_COORDINATE}){_COORDINATE_SUFFIX}\s*[,;/]?\s*"""
     rf"""(?:and\s+)?(?:lon(?:gitude)?|long)\s*"""
-    rf"""(?:(?:is|of|equals?)\s*)?(?P<lon>{_COORDINATE}){_COORDINATE_SUFFIX}""",
+    rf"""(?:(?:is|of|equals?)\s*)?(?P<lon>{_LABELLED_COORDINATE}){_COORDINATE_SUFFIX}""",
     re.IGNORECASE,
 )
 _RECORDING_AT_LOCATION_RE = re.compile(
@@ -100,6 +106,7 @@ def _coordinate_value(value: str) -> float:
     sign = -1.0 if normalized.startswith(("negative", "minus", "-")) else 1.0
     normalized = re.sub(r"^(?:negative|minus)\s+", "", normalized)
     normalized = normalized.removeprefix("-").strip()
+    normalized = re.sub(r"[ \t]+", "", normalized)
     return sign * float(normalized)
 
 
