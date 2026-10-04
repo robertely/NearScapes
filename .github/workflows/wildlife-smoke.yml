@@ -41,35 +41,40 @@ jobs:
           from nearscapes.analyzers.base import AnalyzerContext
           from nearscapes.analyzers.birdnet import BirdNetAnalyzer
 
-          audio = Path("/tmp/birdnet-soundscape.wav")
-          with tempfile.TemporaryDirectory() as tmp:
-              events = BirdNetAnalyzer().analyze(
-                  AnalyzerContext(
-                      source_path=audio,
-                      cache_dir=Path(tmp),
-                      source_sha256="reference",
-                  ),
-                  {
-                      "backend": "onnx",
-                      "precision": "fp16",
-                      "confidence": 0.10,
-                      "n_workers": 1,
-                  },
-              )
+          def main():
+              audio = Path("/tmp/birdnet-soundscape.wav")
+              with tempfile.TemporaryDirectory() as tmp:
+                  events = BirdNetAnalyzer().analyze(
+                      AnalyzerContext(
+                          source_path=audio,
+                          cache_dir=Path(tmp),
+                          source_sha256="reference",
+                      ),
+                      {
+                          "backend": "onnx",
+                          "precision": "fp16",
+                          "confidence": 0.10,
+                          "n_workers": 1,
+                      },
+                  )
 
-          print(f"wildlife_events={len(events)}")
-          for event in events[:20]:
-              print(
-                  f"{event.start_seconds:7.2f}-{event.end_seconds:7.2f} "
-                  f"{event.confidence:0.3f} {event.label}"
-              )
+              print(f"wildlife_events={len(events)}")
+              for event in events[:20]:
+                  print(
+                      f"{event.start_seconds:7.2f}-{event.end_seconds:7.2f} "
+                      f"{event.confidence:0.3f} {event.label}"
+                  )
 
-          assert events, "BirdNET returned no wildlife detections"
-          assert all(event.attributes["device"] == "CPU" for event in events)
-          assert any(
-              "Chickadee" in event.label or "Titmouse" in event.label
-              for event in events
-          ), "Reference recording did not produce an expected bird-family detection"
+              assert events, "BirdNET returned no wildlife detections"
+              assert all(event.attributes["device"] == "CPU" for event in events)
+              assert any(
+                  "Chickadee" in event.label or "Titmouse" in event.label
+                  for event in events
+              ), "Reference recording did not produce an expected bird-family detection"
+
+
+          if __name__ == "__main__":
+              main()
           PY
           uv run python /tmp/nearscapes-wildlife-smoke.py
       # Export the downloaded model so recordings can be validated outside CI.
