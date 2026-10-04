@@ -402,7 +402,7 @@ def build_audacity_project(
                 track_index += 1
 
             save_command = (
-                f"SaveProject2: Filename={_quoted(str(working_output))} "
+                f"SaveProject2: Filename={working_output} "
                 "AddToHistory=0"
             )
             try:
