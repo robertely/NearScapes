@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from nearscapes.analyzers.registry import autorun_specs, default_parameters, get_analyzer
+from nearscapes.analyzers.slate_transcript import parse_opening_location
 from nearscapes.config import get_settings
 from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
 from nearscapes.db.session import SessionLocal
@@ -16,6 +17,50 @@ _BIRDNET_ANALYZER = "birdnet"
 _BIRDNET_PARAMETERS = "_birdnet_parameters"
 
 
+def backfill_location_from_opening_slate(source_id: str) -> dict | None:
+    """Persist location from an existing opening-slate transcript if metadata lacks it."""
+    with SessionLocal() as db:
+        source = db.get(SourceRecording, source_id)
+        if not source:
+            return None
+
+        metadata = dict(source.embedded_metadata or {})
+        if metadata.get("location"):
+            return dict(metadata["location"])
+
+        transcript_runs = db.scalars(
+            select(AnalysisRun)
+            .where(
+                AnalysisRun.source_id == source_id,
+                AnalysisRun.analyzer == _SLATE_TRANSCRIPT_ANALYZER,
+                AnalysisRun.status == "complete",
+            )
+            .order_by(AnalysisRun.created_at.desc())
+        ).all()
+
+        for run in transcript_runs:
+            events = db.scalars(
+                select(Event)
+                .where(
+                    Event.run_id == run.id,
+                    Event.category == "slate-transcript",
+                )
+                .order_by(Event.start_seconds.asc())
+            ).all()
+            for event in events:
+                if not event.text:
+                    continue
+                location = parse_opening_location(event.text)
+                if not location:
+                    continue
+                metadata["location"] = location
+                source.embedded_metadata = metadata
+                db.commit()
+                return location
+
+    return None
+
+
 def queue_upload_analysis(
     source_id: str,
     analyzer_parameter_overrides: dict[str, dict] | None = None,
@@ -25,6 +70,7 @@ def queue_upload_analysis(
         return []
 
     overrides = analyzer_parameter_overrides or {}
+    backfill_location_from_opening_slate(source_id)
     dispatches: list[tuple[str, str]] = []
     with SessionLocal() as db:
         source = db.get(SourceRecording, source_id)
