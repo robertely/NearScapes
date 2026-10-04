@@ -313,7 +313,7 @@ def _is_audacity_project(path: Path) -> bool:
     if not path.exists() or path.stat().st_size < 4096:
         return False
     with path.open("rb") as handle:
-        return handle.read(16) == b"SQLite format 3\\x00"
+        return handle.read(16) == b"SQLite format 3\x00"
 
 
 def _audacity_input_path(source: SourceRecording, temp_root: Path) -> Path:
