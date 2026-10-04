@@ -133,7 +133,8 @@ function showSource() {
   audacity.classList.toggle("hidden", !state.source.audacity_project_ready);
   renderSummary();
   $("run-slate").disabled = state.source.status !== "ready";
-  $("run-birdnet").disabled = state.source.status !== "ready";
+  $("run-birdnet").disabled =
+    state.source.status !== "ready" || !state.source.location;
 }
 
 async function refreshAll(showReady = true) {
@@ -332,7 +333,9 @@ function renderSummary() {
     .slice(0, 5);
 
   if (!topBirds.length) {
-    birds.textContent = "No wildlife detections yet.";
+    birds.textContent = state.source.location
+      ? "No location-filtered wildlife detections."
+      : "Waiting for location before wildlife analysis.";
   } else {
     for (const bird of topBirds) {
       const row = document.createElement("div");
