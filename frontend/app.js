@@ -258,9 +258,21 @@ function renderSummary() {
   if (!state.source) return;
 
   const location = state.source.location;
-  $("summary-location").textContent = location
-    ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`
-    : "Not found in recording metadata";
+  if (location) {
+    const source = location.source ? ` · ${location.source}` : "";
+    $("summary-location").textContent =
+      `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}${source}`;
+  } else {
+    const transcriptRun = latestCompletedRun("slate-transcript");
+    const transcriptFailed = state.runs.some(
+      (run) => run.analyzer === "slate-transcript" && run.status === "failed",
+    );
+    $("summary-location").textContent = transcriptRun
+      ? "Opening slate location could not be parsed"
+      : transcriptFailed
+        ? "Opening slate transcription failed"
+        : "Waiting for opening slate location…";
+  }
 
   const birds = $("summary-birds");
   birds.innerHTML = "";
