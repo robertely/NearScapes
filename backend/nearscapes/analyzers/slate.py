@@ -130,24 +130,30 @@ def detect_tones(
 
 
 def pair_tones(
-    tones: list[ToneRegion], max_gap_seconds: float
+    tones: list[ToneRegion],
+    max_gap_seconds: float,
+    max_start_seconds: float = 60.0,
 ) -> list[tuple[ToneRegion, ToneRegion]]:
-    pairs = []
-    index = 0
-    while index + 1 < len(tones):
-        first, second = tones[index], tones[index + 1]
-        gap = second.start_seconds - first.end_seconds
-        if 0.25 <= gap <= max_gap_seconds:
-            pairs.append((first, second))
-            index += 2
-        else:
-            index += 1
-    return pairs
+    """Pair only the opening recording slate.
+
+    Later 1 kHz detections may be environmental sounds or independent markers,
+    so proximity alone must not turn them into bracketed regions.
+    """
+    if len(tones) < 2:
+        return []
+
+    first, second = tones[0], tones[1]
+    gap = second.start_seconds - first.end_seconds
+    if first.start_seconds > max_start_seconds:
+        return []
+    if 0.25 <= gap <= max_gap_seconds:
+        return [(first, second)]
+    return []
 
 
 class SlateToneAnalyzer:
     id = "slate-tone"
-    version = "0.1.1"
+    version = "0.1.2"
     display_name = "Recording Slate (1 kHz)"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
@@ -220,7 +226,17 @@ class SlateToneAnalyzer:
                 settings.slate_max_pair_gap_seconds,
             )
         )
-        for first, second in pair_tones(tones, max_pair_gap):
+        opening_pair_max_start = float(
+            parameters.get(
+                "opening_pair_max_start_seconds",
+                settings.slate_opening_pair_max_start_seconds,
+            )
+        )
+        for first, second in pair_tones(
+            tones,
+            max_pair_gap,
+            opening_pair_max_start,
+        ):
             detections.append(
                 Detection(
                     start_seconds=first.end_seconds,
@@ -230,6 +246,7 @@ class SlateToneAnalyzer:
                     attributes={
                         "opening_marker_start": first.start_seconds,
                         "closing_marker_end": second.end_seconds,
+                        "pair_role": "opening-slate",
                     },
                 )
             )
