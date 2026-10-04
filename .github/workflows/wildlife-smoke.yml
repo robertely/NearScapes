@@ -34,7 +34,7 @@ jobs:
             https://raw.githubusercontent.com/birdnet-team/birdnet/main/example/soundscape.wav
       - name: Run NearScapes BirdNET analyzer on CPU
         run: |
-          uv run python - <<'PY'
+          cat > /tmp/nearscapes-wildlife-smoke.py <<'PY'
           from pathlib import Path
           import tempfile
 
@@ -71,8 +71,10 @@ jobs:
               for event in events
           ), "Reference recording did not produce an expected bird-family detection"
           PY
+          uv run python /tmp/nearscapes-wildlife-smoke.py
       # Export the downloaded model so recordings can be validated outside CI.
       - name: Export BirdNET model cache for local validation
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: birdnet-v3-cpu-cache
