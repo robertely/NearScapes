@@ -1,5 +1,5 @@
 import numpy as np
-from nearscapes.analyzers.slate import detect_tones, pair_tones
+from nearscapes.analyzers.slate import ToneRegion, detect_tones, pair_tones
 
 
 def synth(sample_rate: int, duration: float, tones: list[tuple[float, float, float]]) -> np.ndarray:
@@ -20,7 +20,7 @@ def test_detects_two_second_1khz_tones():
     assert len(tones) == 2
     assert abs(tones[0].start_seconds - 2.0) < 0.1
     assert abs(tones[0].end_seconds - 4.0) < 0.1
-    assert len(pair_tones(tones, 60)) == 1
+    assert len(pair_tones(tones, 25)) == 1
 
 
 def test_rejects_wrong_frequency_and_duration():
@@ -43,3 +43,37 @@ def test_rejects_weak_1khz_component_inside_louder_audio():
     ).astype(np.float32)
 
     assert detect_tones(samples, sr) == []
+
+
+
+def test_pairs_realistic_opening_slate_gap():
+    tones = [
+        ToneRegion(18.375, 20.375, 40.0),
+        ToneRegion(41.025, 43.025, 55.0),
+    ]
+
+    pairs = pair_tones(tones, 25, 60)
+
+    assert pairs == [(tones[0], tones[1])]
+
+
+def test_does_not_pair_later_tones_by_proximity():
+    tones = [
+        ToneRegion(690.525, 692.525, 41.0),
+        ToneRegion(694.825, 696.825, 50.0),
+    ]
+
+    assert pair_tones(tones, 25, 60) == []
+
+
+def test_pairs_at_most_one_opening_slate():
+    tones = [
+        ToneRegion(18.375, 20.375, 40.0),
+        ToneRegion(41.025, 43.025, 55.0),
+        ToneRegion(50.0, 52.0, 45.0),
+        ToneRegion(54.0, 56.0, 45.0),
+    ]
+
+    pairs = pair_tones(tones, 25, 60)
+
+    assert pairs == [(tones[0], tones[1])]
