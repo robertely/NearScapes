@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -24,6 +25,16 @@ class LocalStorage:
         directory = self.cache / sha256[:2] / sha256
         directory.mkdir(parents=True, exist_ok=True)
         return directory
+
+    def export_dir(self, sha256: str) -> Path:
+        directory = self.exports / sha256[:2] / sha256
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    def audacity_project_path(self, sha256: str, filename: str) -> Path:
+        stem = Path(filename).stem or "recording"
+        safe = re.sub(r"[^A-Za-z0-9._ -]+", "_", stem).strip(" .") or "recording"
+        return self.export_dir(sha256) / f"{safe}.analysis.aup3"
 
     def create_upload_temp(self) -> Path:
         """Create upload scratch space on the same filesystem as persistent storage."""
