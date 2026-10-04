@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
+from functools import lru_cache
 from pathlib import Path
 
 import httpx
@@ -53,9 +54,56 @@ def _split_species_name(value: str) -> tuple[str | None, str]:
     return scientific or None, common or value
 
 
+@lru_cache(maxsize=16)
+def _geo_model(locale: str, precision: str):
+    import birdnet
+
+    return birdnet.load(
+        "geo",
+        "3.0",
+        "onnx",
+        lang=locale,
+        precision=precision,
+    )
+
+
+def _geo_support(
+    parameters: dict,
+    *,
+    locale: str,
+    precision: str,
+) -> dict[str, float] | None:
+    latitude = parameters.get("latitude")
+    longitude = parameters.get("longitude")
+    if latitude is None or longitude is None:
+        return None
+
+    settings = get_settings()
+    threshold = float(
+        parameters.get(
+            "geo_confidence",
+            settings.birdnet_geo_confidence_default,
+        )
+    )
+    model = _geo_model(locale, precision)
+    result = model.predict(
+        float(latitude),
+        float(longitude),
+        min_confidence=threshold,
+        device="CPU",
+    )
+
+    support: dict[str, float] = {}
+    for row in result.to_structured_array(sort_by=None):
+        scientific_name, _ = _split_species_name(str(row["species_name"]))
+        if scientific_name:
+            support[scientific_name] = float(row["confidence"])
+    return support
+
+
 class BirdNetAnalyzer:
     id = "birdnet"
-    version = "0.2.0"
+    version = "0.3.0"
     display_name = "BirdNET+ V3 wildlife"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
@@ -101,6 +149,21 @@ class BirdNetAnalyzer:
                         "batch_size": str(batch_size),
                         "top_k": str(top_k),
                         "locale": locale,
+                        **(
+                            {
+                                "latitude": str(parameters["latitude"]),
+                                "longitude": str(parameters["longitude"]),
+                                "geo_confidence": str(
+                                    parameters.get(
+                                        "geo_confidence",
+                                        settings.birdnet_geo_confidence_default,
+                                    )
+                                ),
+                            }
+                            if parameters.get("latitude") is not None
+                            and parameters.get("longitude") is not None
+                            else {}
+                        ),
                     },
                     files={
                         "file": (
@@ -188,11 +251,30 @@ class BirdNetAnalyzer:
             load_kwargs["precision"] = precision
 
         model = birdnet.load("acoustic", "3.0", backend, **load_kwargs)
+        geo_support = _geo_support(
+            parameters,
+            locale=locale,
+            precision=precision,
+        )
+        custom_species_list = None
+        if geo_support is not None:
+            custom_species_list = [
+                str(species_name)
+                for species_name in model.species_list
+                if _split_species_name(str(species_name))[0] in geo_support
+            ]
+            if not custom_species_list:
+                raise RuntimeError(
+                    "BirdNET GeoModel returned no species that match the acoustic model"
+                )
+
         input_path = _birdnet_input_path(context)
         predictions = model.predict(
             input_path,
             device="CPU",
             n_workers=n_workers,
+            default_confidence_threshold=threshold,
+            custom_species_list=custom_species_list,
         )
 
         detections: list[Detection] = []
@@ -218,6 +300,15 @@ class BirdNetAnalyzer:
                         "device": "CPU",
                         "accelerator": "cpu",
                         "input_path": str(input_path),
+                        "geo_filter_applied": geo_support is not None,
+                        "geo_confidence": (
+                            geo_support.get(scientific_name)
+                            if geo_support is not None and scientific_name
+                            else None
+                        ),
+                        "latitude": parameters.get("latitude"),
+                        "longitude": parameters.get("longitude"),
+                        "location_source": parameters.get("location_source"),
                     },
                 )
             )
