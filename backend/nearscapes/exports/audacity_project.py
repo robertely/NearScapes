@@ -362,7 +362,7 @@ def build_audacity_project(
         home.mkdir(parents=True)
         input_path = _audacity_input_path(source, temp_root)
         working_output = temp_root / "project.aup3"
-        pipe = AudacityPipe(home)
+        pipe = AudacityPipe(home, initial_audio=input_path)
         try:
             pipe.bootstrap_module()
             pipe.start()
@@ -370,15 +370,6 @@ def build_audacity_project(
                 'SetPreference: Name="Warnings/FirstProjectSave" Value="0" Reload=0'
             )
 
-            # Establish a real project file before importing audio. Audacity's
-            # Save-As path for a temporary imported-audio project can fail in
-            # headless mode while "Copying Project"; once the project owns its
-            # AUP3, subsequent saves use the normal in-place path.
-            pipe.command(
-                f"SaveProject2: Filename={_quoted(str(working_output))} "
-                "AddToHistory=0"
-            )
-            pipe.command(f"Import2: Filename={_quoted(str(input_path))}")
             pipe.command("SelectTracks: Track=0 TrackCount=1 Mode=Set")
             pipe.command(
                 f"SetTrackStatus: Name={_quoted(_clean_label(source.filename))} "
