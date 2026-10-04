@@ -21,7 +21,7 @@ def test_opening_slate_location_fills_missing_metadata_location():
     assert updated["tags"] == metadata["tags"]
 
 
-def test_existing_metadata_location_wins_over_opening_slate():
+def test_opening_slate_location_replaces_embedded_metadata_location():
     embedded = {
         "latitude": 40.0,
         "longitude": -105.0,
@@ -38,4 +38,5 @@ def test_existing_metadata_location_wins_over_opening_slate():
         [_detection(detected)],
     )
 
-    assert updated["location"] == embedded
+    assert updated["location"] == detected
+    assert updated["embedded_location"] == embedded
