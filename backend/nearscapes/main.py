@@ -47,6 +47,9 @@ def source_payload(source: SourceRecording) -> dict:
         "codec": source.codec,
         "embedded_metadata": source.embedded_metadata or {},
         "location": (source.embedded_metadata or {}).get("location"),
+        "recording_metadata": (source.embedded_metadata or {}).get(
+            "recording_metadata"
+        ) or {},
         "status": source.status,
         "error": source.error,
         "created_at": source.created_at.isoformat(),
@@ -184,6 +187,10 @@ def get_analysis(source_id: str, db: DbSession) -> dict:
         "source": source_payload(source),
         "recording_metadata": {
             "location": (source.embedded_metadata or {}).get("location"),
+            **(
+                (source.embedded_metadata or {}).get("recording_metadata")
+                or {}
+            ),
         },
         "runs": run_results,
     }
