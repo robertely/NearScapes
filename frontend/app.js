@@ -162,7 +162,10 @@ async function waitForPipeline() {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await refreshAll(false);
     const status = await api(`/api/sources/${state.source.id}/audacity-status`);
-    if (status.ready) {
+    const pending = state.runs.filter(
+      (run) => !["complete", "failed"].includes(run.status),
+    );
+    if (status.ready && !pending.length) {
       state.source = await api(`/api/sources/${state.source.id}`);
       showSource();
       setStatus("Analysis complete · Audacity project ready");
@@ -180,7 +183,6 @@ async function waitForPipeline() {
     if (status.job?.status === "failed") {
       throw new Error(`Audacity export failed: ${status.job.error || "unknown error"}`);
     }
-    const pending = state.runs.filter((run) => !["complete", "failed"].includes(run.status));
     if (pending.length) {
       setStatus(`Analyzing ${pending.map((run) => run.analyzer).join(", ")}…`);
     } else if (status.job) {
@@ -263,15 +265,19 @@ function renderSummary() {
     $("summary-location").textContent =
       `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}${source}`;
   } else {
-    const transcriptRun = latestCompletedRun("slate-transcript");
-    const transcriptFailed = state.runs.some(
-      (run) => run.analyzer === "slate-transcript" && run.status === "failed",
+    const transcriptRuns = state.runs.filter(
+      (run) => run.analyzer === "slate-transcript",
     );
-    $("summary-location").textContent = transcriptRun
-      ? "Opening slate location could not be parsed"
-      : transcriptFailed
-        ? "Opening slate transcription failed"
-        : "Waiting for opening slate location…";
+    const transcriptRun = transcriptRuns.at(-1);
+    if (transcriptRun?.status === "queued" || transcriptRun?.status === "running") {
+      $("summary-location").textContent = "Transcribing opening slate…";
+    } else if (transcriptRun?.status === "complete") {
+      $("summary-location").textContent = "Opening slate location could not be parsed";
+    } else if (transcriptRun?.status === "failed") {
+      $("summary-location").textContent = "Opening slate transcription failed";
+    } else {
+      $("summary-location").textContent = "Waiting to transcribe opening slate…";
+    }
   }
 
   const birds = $("summary-birds");
