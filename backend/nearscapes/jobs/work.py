@@ -6,6 +6,7 @@ from pathlib import Path
 
 from nearscapes.analyzers.base import AnalyzerContext
 from nearscapes.analyzers.registry import get_analyzer
+from nearscapes.analyzers.slate_transcript import parse_opening_location
 from nearscapes.audio.pcm import ensure_mono_pcm, load_pcm
 from nearscapes.audio.probe import ffprobe
 from nearscapes.audio.waveform import calculate_waveform, write_waveform
@@ -44,7 +45,12 @@ def metadata_with_detected_location(metadata: dict, detections: list) -> dict:
         return updated
 
     for detection in detections:
-        location = (detection.attributes or {}).get("location")
+        attributes = detection.attributes or {}
+        location = attributes.get("location")
+        if not location and getattr(detection, "category", None) == "slate-transcript":
+            text = getattr(detection, "text", None)
+            if text:
+                location = parse_opening_location(text)
         if location:
             updated["location"] = dict(location)
             break
