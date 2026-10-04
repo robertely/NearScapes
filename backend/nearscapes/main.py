@@ -23,6 +23,7 @@ from nearscapes.pipeline import (
     backfill_location_from_opening_slate,
     maybe_queue_audacity_export,
     queue_upload_analysis,
+    resume_upload_pipeline,
 )
 from nearscapes.storage.local import LocalStorage
 
@@ -127,6 +128,7 @@ async def upload_source(
             if existing.status == "ready":
                 backfill_location_from_opening_slate(existing.id)
                 queue_upload_analysis(existing.id, analysis_overrides)
+                resume_upload_pipeline(existing.id)
                 maybe_queue_audacity_export(existing.id)
                 db.refresh(existing)
             return {"source": source_payload(existing), "job": None, "deduplicated": True}
@@ -162,6 +164,7 @@ def get_source(source_id: str, db: DbSession) -> dict:
         raise HTTPException(404, "Source not found")
     if not (source.embedded_metadata or {}).get("location"):
         backfill_location_from_opening_slate(source_id)
+        resume_upload_pipeline(source_id)
         db.refresh(source)
     return source_payload(source)
 
@@ -173,6 +176,7 @@ def get_analysis(source_id: str, db: DbSession) -> dict:
         raise HTTPException(404, "Source not found")
     if not (source.embedded_metadata or {}).get("location"):
         backfill_location_from_opening_slate(source_id)
+        resume_upload_pipeline(source_id)
         db.refresh(source)
     runs = db.scalars(
         select(AnalysisRun)
