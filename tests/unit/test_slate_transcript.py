@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from nearscapes.analyzers.slate_transcript import parse_announced_time
 from nearscapes.pipeline import build_slate_transcription_windows
 
 
@@ -28,7 +29,7 @@ def test_bracketed_region_becomes_transcription_window():
         {
             "start_seconds": 3.0,
             "end_seconds": 8.0,
-            "boundary": "between-beeps",
+            "boundary": "opening-slate",
         }
     ]
 
@@ -46,7 +47,7 @@ def test_unpaired_beep_uses_post_window():
         {
             "start_seconds": 3.0,
             "end_seconds": 33.0,
-            "boundary": "after-beep",
+            "boundary": "note-slate-candidate",
         }
     ]
 
@@ -66,5 +67,17 @@ def test_post_window_stops_at_next_beep():
     assert windows[0] == {
         "start_seconds": 3.0,
         "end_seconds": 12.0,
-        "boundary": "after-beep",
+        "boundary": "note-slate-candidate",
     }
+
+
+
+def test_parses_announced_clock_times():
+    assert parse_announced_time("11:20 AM") == "11:20 AM"
+    assert parse_announced_time("11 20 a.m. walking by the tracks") == "11:20 AM"
+    assert parse_announced_time("The time is 7:05 PM. Train passing.") == "7:05 PM"
+
+
+def test_rejects_non_time_speech_as_note_slate():
+    assert parse_announced_time("train crossing, lots of birds") is None
+    assert parse_announced_time("I think it is around eleven") is None
