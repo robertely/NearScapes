@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from nearscapes.analyzers.registry import autorun_specs, get_analyzer
+from nearscapes.analyzers.registry import autorun_specs, default_parameters, get_analyzer
 from nearscapes.config import get_settings
 from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
 from nearscapes.db.session import SessionLocal
@@ -12,6 +12,8 @@ _PIPELINE_MARKER = "_pipeline"
 _UPLOAD_PIPELINE = "upload"
 _TERMINAL_RUN_STATES = {"complete", "failed"}
 _SLATE_TRANSCRIPT_ANALYZER = "slate-transcript"
+_BIRDNET_ANALYZER = "birdnet"
+_BIRDNET_PARAMETERS = "_birdnet_parameters"
 
 
 def queue_upload_analysis(
@@ -45,6 +47,8 @@ def queue_upload_analysis(
             analyzer = get_analyzer(analyzer_id)
             parameters = dict(spec["parameters"])
             parameters.update(overrides.get(analyzer_id, {}))
+            if analyzer_id == "slate-tone":
+                parameters[_BIRDNET_PARAMETERS] = dict(overrides.get("birdnet", {}))
             parameters[_PIPELINE_MARKER] = _UPLOAD_PIPELINE
             run = AnalysisRun(
                 source_id=source_id,
@@ -176,7 +180,63 @@ def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
                 "sample_rate": settings.slate_transcription_sample_rate,
                 "model": settings.slate_transcription_model,
                 "language": settings.slate_transcription_language,
+                _BIRDNET_PARAMETERS: dict(
+                    (slate_run.parameters or {}).get(_BIRDNET_PARAMETERS, {})
+                ),
             },
+            status="queued",
+        )
+        db.add(run)
+        db.flush()
+        job = Job(kind="analysis", source_id=source_id, run_id=run.id)
+        db.add(job)
+        db.flush()
+        dispatch = (job.id, run.id)
+        db.commit()
+
+    if dispatch:
+        dispatch_analysis(*dispatch)
+        return dispatch[1]
+    return None
+
+
+def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
+    dispatch: tuple[str, str] | None = None
+    with SessionLocal() as db:
+        source = db.get(SourceRecording, source_id)
+        upstream = db.get(AnalysisRun, upstream_run_id)
+        if (
+            not source
+            or not upstream
+            or upstream.source_id != source_id
+            or upstream.status not in _TERMINAL_RUN_STATES
+        ):
+            return None
+
+        existing = db.scalars(
+            select(AnalysisRun)
+            .where(
+                AnalysisRun.source_id == source_id,
+                AnalysisRun.analyzer == _BIRDNET_ANALYZER,
+            )
+            .order_by(AnalysisRun.created_at.desc())
+        ).first()
+        if existing and (existing.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE:
+            return existing.id
+
+        parameters = default_parameters(_BIRDNET_ANALYZER)
+        parameters.update(
+            dict((upstream.parameters or {}).get(_BIRDNET_PARAMETERS, {}))
+        )
+        parameters[_PIPELINE_MARKER] = _UPLOAD_PIPELINE
+        parameters["source_upstream_run_id"] = upstream_run_id
+
+        analyzer = get_analyzer(_BIRDNET_ANALYZER)
+        run = AnalysisRun(
+            source_id=source_id,
+            analyzer=analyzer.id,
+            analyzer_version=analyzer.version,
+            parameters=parameters,
             status="queued",
         )
         db.add(run)
@@ -199,7 +259,7 @@ def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str |
         return None
 
     settings = get_settings()
-    expected = {spec["analyzer"] for spec in autorun_specs()}
+    expected = {"slate-tone", _BIRDNET_ANALYZER}
     if settings.accelerator == "metal":
         expected.add(_SLATE_TRANSCRIPT_ANALYZER)
     with SessionLocal() as db:
