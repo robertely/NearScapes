@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     accelerator: str = "cpu"
     inference_url: str = "http://host.docker.internal:8787"
     inference_timeout_seconds: float = 3600.0
-    birdnet_confidence_default: float = 0.60
+    birdnet_confidence_default: float = 0.85
+    birdnet_geo_confidence_default: float = 0.03
 
     slate_frequency_hz: float = 1000.0
     slate_frequency_tolerance_hz: float = 30.0
