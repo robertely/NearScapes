@@ -20,6 +20,7 @@ class AnalyzerContext:
     source_path: Path
     cache_dir: Path
     source_sha256: str
+    source_filename: str | None = None
 
 
 class Analyzer(Protocol):
