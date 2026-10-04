@@ -28,6 +28,32 @@ function formatTime(seconds) {
   return `${minutes}:${secs.toFixed(2).padStart(5, "0")}`;
 }
 
+function seekAndPlay(seconds) {
+  const audio = $("audio");
+  if (!state.source) return;
+
+  const playAtTarget = () => {
+    const knownDuration = Number.isFinite(audio.duration)
+      ? audio.duration
+      : state.source.duration_seconds;
+    const maximum = Math.max(0, (knownDuration || seconds) - 0.01);
+    const target = Math.max(0, Math.min(seconds, maximum));
+
+    audio.currentTime = target;
+    const playback = audio.play();
+    if (playback?.catch) {
+      playback.catch((error) => setStatus(`Playback failed: ${error.message}`, true));
+    }
+  };
+
+  if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    playAtTarget();
+  } else {
+    audio.addEventListener("loadedmetadata", playAtTarget, { once: true });
+    audio.load();
+  }
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, options);
   if (!response.ok) {
@@ -72,7 +98,12 @@ function showSource() {
   if (state.source.channels) bits.push(`${state.source.channels} ch`);
   if (state.source.codec) bits.push(state.source.codec);
   $("metadata").textContent = bits.join(" · ") || state.source.status;
-  $("audio").src = `/api/sources/${state.source.id}/audio`;
+  const audio = $("audio");
+  if (audio.dataset.sourceId !== state.source.id) {
+    audio.dataset.sourceId = state.source.id;
+    audio.src = `/api/sources/${state.source.id}/audio`;
+    audio.load();
+  }
   $("analysis-json").href = `/api/sources/${state.source.id}/analysis`;
   const audacity = $("audacity-project");
   audacity.href = `/api/sources/${state.source.id}/audacity-project`;
@@ -185,10 +216,7 @@ function drawLanes() {
       el.style.left = `${startPct}%`;
       el.style.width = `${Math.min(100 - startPct, widthPct)}%`;
       el.title = `${event.label} · ${formatTime(event.start_seconds)}–${formatTime(event.end_seconds)}`;
-      el.addEventListener("click", () => {
-        $("audio").currentTime = event.start_seconds;
-        $("audio").play();
-      });
+      el.addEventListener("click", () => seekAndPlay(event.start_seconds));
       lane.appendChild(el);
     }
     lanes.appendChild(lane);
@@ -283,10 +311,7 @@ function renderSummary() {
       const offset = document.createElement("small");
       offset.textContent = `Recording ${formatTime(event.start_seconds)}`;
       row.append(heading, text, offset);
-      row.addEventListener("click", () => {
-        $("audio").currentTime = event.start_seconds;
-        $("audio").play();
-      });
+      row.addEventListener("click", () => seekAndPlay(event.start_seconds));
       notes.appendChild(row);
     }
   }
@@ -329,10 +354,7 @@ function renderEvents() {
     const db = event.attributes?.median_tone_to_guard_db == null ? "" : ` · ${event.attributes.median_tone_to_guard_db.toFixed(1)} dB`;
     const device = event.attributes?.device ? ` · ${event.attributes.device}` : "";
     row.innerHTML = `<span><strong>${event.label}</strong><small>${run.analyzer}${confidence}${db}${device}</small></span><span>${formatTime(event.start_seconds)}–${formatTime(event.end_seconds)}</span>`;
-    row.addEventListener("click", () => {
-      $("audio").currentTime = event.start_seconds;
-      $("audio").play();
-    });
+    row.addEventListener("click", () => seekAndPlay(event.start_seconds));
     list.appendChild(row);
   }
 }
@@ -415,6 +437,6 @@ $("waveform").addEventListener("click", (event) => {
   if (!state.source?.duration_seconds) return;
   const rect = event.currentTarget.getBoundingClientRect();
   const ratio = (event.clientX - rect.left) / rect.width;
-  $("audio").currentTime = ratio * state.source.duration_seconds;
+  seekAndPlay(ratio * state.source.duration_seconds);
 });
 window.addEventListener("resize", () => { if (state.waveform) drawTimeline(); });
