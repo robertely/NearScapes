@@ -3,6 +3,7 @@ from copy import deepcopy
 from nearscapes.analyzers.birdnet import BirdNetAnalyzer
 from nearscapes.analyzers.slate import SlateToneAnalyzer
 from nearscapes.analyzers.slate_transcript import SlateTranscriptAnalyzer
+from nearscapes.config import get_settings
 
 _ANALYZERS = {
     SlateToneAnalyzer.id: SlateToneAnalyzer(),
@@ -15,10 +16,17 @@ _AUTORUN_PARAMETERS = {
     "birdnet": {
         "backend": "onnx",
         "precision": "fp16",
-        "confidence": 0.25,
+        "confidence": 0.60,
         "n_workers": 1,
     },
 }
+
+
+def _default_parameters(analyzer_id: str) -> dict:
+    parameters = deepcopy(_AUTORUN_PARAMETERS.get(analyzer_id, {}))
+    if analyzer_id == "birdnet":
+        parameters["confidence"] = get_settings().birdnet_confidence_default
+    return parameters
 
 
 def list_analyzers() -> list[dict]:
@@ -28,7 +36,7 @@ def list_analyzers() -> list[dict]:
             "version": item.version,
             "display_name": item.display_name,
             "auto_run": item.id in _AUTORUN_PARAMETERS,
-            "default_parameters": deepcopy(_AUTORUN_PARAMETERS.get(item.id, {})),
+            "default_parameters": _default_parameters(item.id),
         }
         for item in _ANALYZERS.values()
     ]
@@ -39,7 +47,7 @@ def autorun_specs() -> list[dict]:
     return [
         {
             "analyzer": analyzer_id,
-            "parameters": deepcopy(parameters),
+            "parameters": _default_parameters(analyzer_id),
         }
         for analyzer_id, parameters in _AUTORUN_PARAMETERS.items()
     ]
