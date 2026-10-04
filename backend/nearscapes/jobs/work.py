@@ -152,6 +152,7 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
                     parameters.setdefault("latitude", float(location["latitude"]))
                     parameters.setdefault("longitude", float(location["longitude"]))
                     parameters.setdefault("location_source", location.get("source"))
+                    run.parameters = parameters
             source_path = Path(source.storage_path)
             source_sha = source.sha256
 
