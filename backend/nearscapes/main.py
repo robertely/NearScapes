@@ -20,10 +20,8 @@ from nearscapes.db.session import get_db
 from nearscapes.jobs.dispatch import dispatch_analysis, dispatch_ingest
 from nearscapes.logging import configure_logging
 from nearscapes.pipeline import (
-    backfill_location_from_opening_slate,
+    advance_upload_pipeline,
     maybe_queue_audacity_export,
-    queue_upload_analysis,
-    resume_upload_pipeline,
     upload_pipeline_status,
 )
 from nearscapes.storage.local import LocalStorage
@@ -127,10 +125,7 @@ async def upload_source(
         existing = db.scalar(select(SourceRecording).where(SourceRecording.sha256 == sha256))
         if existing:
             if existing.status == "ready":
-                backfill_location_from_opening_slate(existing.id)
-                queue_upload_analysis(existing.id, analysis_overrides)
-                resume_upload_pipeline(existing.id)
-                maybe_queue_audacity_export(existing.id)
+                advance_upload_pipeline(existing.id, analysis_overrides)
                 db.refresh(existing)
             return {"source": source_payload(existing), "job": None, "deduplicated": True}
 
@@ -163,10 +158,8 @@ def get_source(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
-    if not (source.embedded_metadata or {}).get("location"):
-        backfill_location_from_opening_slate(source_id)
-        resume_upload_pipeline(source_id)
-        db.refresh(source)
+    advance_upload_pipeline(source_id)
+    db.refresh(source)
     return source_payload(source)
 
 
@@ -175,10 +168,8 @@ def get_analysis(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
-    if not (source.embedded_metadata or {}).get("location"):
-        backfill_location_from_opening_slate(source_id)
-        resume_upload_pipeline(source_id)
-        db.refresh(source)
+    advance_upload_pipeline(source_id)
+    db.refresh(source)
     runs = db.scalars(
         select(AnalysisRun)
         .where(AnalysisRun.source_id == source_id)
@@ -213,7 +204,7 @@ def get_audacity_status(source_id: str, db: DbSession) -> dict:
 
     analysis = upload_pipeline_status(source_id)
     if not analysis["complete"]:
-        resume_upload_pipeline(source_id)
+        advance_upload_pipeline(source_id)
         analysis = upload_pipeline_status(source_id)
         db.refresh(source)
 
@@ -223,6 +214,28 @@ def get_audacity_status(source_id: str, db: DbSession) -> dict:
         .where(Job.source_id == source_id, Job.kind == "audacity-export")
         .order_by(Job.created_at.desc())
     )
+
+    core_complete = bool(analysis["complete"])
+    if path.exists():
+        audacity_status = "complete"
+    elif job and job.status in {"queued", "running", "failed"}:
+        audacity_status = job.status
+    else:
+        audacity_status = "pending"
+
+    analysis["core_complete"] = core_complete
+    analysis["stages"] = [
+        *analysis.get("stages", []),
+        {
+            "id": "audacity",
+            "label": "Create Audacity project",
+            "status": audacity_status if core_complete else "pending",
+        },
+    ]
+    if core_complete and not path.exists():
+        analysis["current_stage"] = "audacity"
+    analysis["complete"] = core_complete and path.exists()
+
     return {
         "ready": path.exists(),
         "analysis": analysis,
