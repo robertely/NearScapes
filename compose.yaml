@@ -51,10 +51,7 @@ services:
 
   web:
     build: .
-    environment:
-      <<: *app-env
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,video
+    environment: *app-env
     ports:
       - "8000:8000"
     depends_on:
@@ -75,7 +72,10 @@ services:
     build: .
     gpus: all
     command: ["dramatiq", "nearscapes.jobs.tasks", "--processes", "1", "--threads", "2"]
-    environment: *app-env
+    environment:
+      <<: *app-env
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,video
     depends_on:
       migrate:
         condition: service_completed_successfully
