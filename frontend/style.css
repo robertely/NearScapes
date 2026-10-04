@@ -13,7 +13,8 @@ header p { margin: 5px 0 0; color: #66736b; }
 .status { padding: 7px 11px; border-radius: 999px; background: #e1e7e1; font-size: .85rem; }
 .drop-zone { margin-top: 28px; border: 2px dashed #9eaaa0; border-radius: 14px; min-height: 150px; display: grid; place-items: center; align-content: center; gap: 6px; background: #fff; cursor: pointer; }
 .drop-zone.drag { border-color: #293f34; background: #f7faf7; }
-.drop-zone input { margin-top: 10px; }
+.upload-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .workspace { margin-top: 32px; }
 .hidden { display: none; }
 .metadata { color: #66736b; font-size: .9rem; }
