@@ -46,3 +46,15 @@ audio { width: 100%; margin: 20px 0 12px; }
 .confidence-control { display: grid; grid-template-columns: auto 110px 3ch; gap: 7px; align-items: center; font-size: .85rem; color: #66736b; }
 .confidence-control input { margin: 0; }
 .confidence-control output { color: #17202a; font-variant-numeric: tabular-nums; }
+
+.recording-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 18px; }
+.summary-card { background: #fff; border: 1px solid #d9ded9; border-radius: 10px; padding: 14px; }
+.summary-card h3 { margin: 0 0 10px; font-size: .95rem; }
+.summary-notes { grid-column: 1 / -1; }
+.summary-value { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.summary-list { display: grid; gap: 8px; color: #66736b; }
+.summary-item { display: grid; gap: 2px; }
+.summary-item small { color: #66736b; }
+.summary-note { width: 100%; text-align: left; color: #17202a; }
+.summary-note span { line-height: 1.4; }
+@media (max-width: 700px) { .recording-summary { grid-template-columns: 1fr; } .summary-notes { grid-column: auto; } }
