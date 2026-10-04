@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import threading
 from functools import lru_cache
+from typing import Annotated
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -33,7 +34,9 @@ def _mps_status() -> dict:
         probe = torch.ones(1, device="mps")
         _ = probe.cpu()
     except Exception as exc:
-        raise RuntimeError(f"MPS is reported available but a test allocation failed: {exc}") from exc
+        raise RuntimeError(
+            f"MPS is reported available but a test allocation failed: {exc}"
+        ) from exc
 
     return {
         "accelerator": "mps",
@@ -187,12 +190,12 @@ def _run_birdnet(
 
 @app.post("/v1/birdnet/predict")
 def birdnet_predict(
-    file: UploadFile = File(...),
-    sample_rate: int = Form(_SAMPLE_RATE),
-    confidence: float = Form(0.25),
-    batch_size: int = Form(16),
-    top_k: int = Form(5),
-    locale: str = Form("en_us"),
+    file: Annotated[UploadFile, File(...)],
+    sample_rate: Annotated[int, Form()] = _SAMPLE_RATE,
+    confidence: Annotated[float, Form()] = 0.25,
+    batch_size: Annotated[int, Form()] = 16,
+    top_k: Annotated[int, Form()] = 5,
+    locale: Annotated[str, Form()] = "en_us",
 ) -> dict:
     if sample_rate != _SAMPLE_RATE:
         raise HTTPException(
