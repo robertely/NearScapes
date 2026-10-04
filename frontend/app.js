@@ -1,5 +1,5 @@
 const DEFAULT_WILDLIFE_CONFIDENCE = 0.85;
-const savedWildlifeConfidence = Number(localStorage.getItem("nearscapes.wildlifeConfidence"));
+const savedWildlifeConfidence = Number(localStorage.getItem("nearscapes.wildlifeConfidence.v2"));
 const initialWildlifeConfidence =
   Number.isFinite(savedWildlifeConfidence) &&
   savedWildlifeConfidence >= 0.25 &&
@@ -430,7 +430,7 @@ function renderWildlifeConfidence() {
 wildlifeConfidenceInput.addEventListener("input", () => {
   state.wildlifeConfidence = Number(wildlifeConfidenceInput.value);
   localStorage.setItem(
-    "nearscapes.wildlifeConfidence",
+    "nearscapes.wildlifeConfidence.v2",
     state.wildlifeConfidence.toFixed(2),
   );
   renderWildlifeConfidence();
