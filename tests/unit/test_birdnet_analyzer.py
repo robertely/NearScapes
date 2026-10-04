@@ -34,7 +34,7 @@ class FakePredictions:
 
 
 class FakeModel:
-    def predict(self, path, device, n_workers):
+    def predict(self, path, device, n_workers, **kwargs):
         assert path.name == "recording.wav"
         assert device == "CPU"
         assert n_workers == 1
@@ -71,7 +71,7 @@ def test_birdnet_normalizes_cpu_predictions(monkeypatch, tmp_path):
 
 def test_birdnet_uses_original_extension_for_extensionless_storage(monkeypatch, tmp_path):
     class ExtensionCheckingModel:
-        def predict(self, path, device, n_workers):
+        def predict(self, path, device, n_workers, **kwargs):
             assert path.suffix == ".mp3"
             assert path.exists()
             return FakePredictions()
