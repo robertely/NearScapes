@@ -261,6 +261,13 @@ def _event_label(event: Event) -> str:
     return _clean_label(text)[:240]
 
 
+def _is_audacity_project(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size < 4096:
+        return False
+    with path.open("rb") as handle:
+        return handle.read(16) == b"SQLite format 3\\x00"
+
+
 def _audacity_input_path(source: SourceRecording, temp_root: Path) -> Path:
     source_path = Path(source.storage_path)
     suffix = Path(source.filename).suffix.lower() or source_path.suffix.lower()
@@ -331,18 +338,23 @@ def build_audacity_project(
                     )
                 track_index += 1
 
-            pipe.command(
+            save_command = (
                 f"SaveProject2: Filename={_quoted(str(temporary_output))} "
                 "AddToHistory=0 Compress=0"
             )
+            try:
+                pipe.command(save_command)
+            except TimeoutError:
+                # Audacity 3.2 on headless Linux can finish SaveProject2 but
+                # fail to return the command response through mod-script-pipe.
+                # Accept that specific failure only when a real AUP3 was written.
+                if not _is_audacity_project(temporary_output):
+                    raise
         finally:
             pipe.close()
 
-    if not temporary_output.exists() or temporary_output.stat().st_size < 4096:
-        raise RuntimeError("Audacity did not create a usable AUP3 project")
-    with temporary_output.open("rb") as handle:
-        if handle.read(16) != b"SQLite format 3\x00":
-            raise RuntimeError("Audacity export is not an AUP3 SQLite project")
+    if not _is_audacity_project(temporary_output):
+        raise RuntimeError("Audacity did not create a usable AUP3 SQLite project")
     temporary_output.replace(output)
 
 
