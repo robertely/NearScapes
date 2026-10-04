@@ -84,6 +84,7 @@ def queue_upload_analysis(
             run.analyzer
             for run in existing
             if (run.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
+            and run.status in {"queued", "running", "complete"}
         }
 
         for spec in autorun_specs():
@@ -277,6 +278,9 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
             source_location.get("latitude") is not None
             and source_location.get("longitude") is not None
         )
+        if not location_available:
+            return None
+
         existing_parameters = (existing.parameters or {}) if existing else {}
         existing_is_location_filtered = (
             existing_parameters.get("latitude") is not None
@@ -300,6 +304,9 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
         )
         parameters[_PIPELINE_MARKER] = _UPLOAD_PIPELINE
         parameters["source_upstream_run_id"] = upstream_run_id
+        parameters["latitude"] = float(source_location["latitude"])
+        parameters["longitude"] = float(source_location["longitude"])
+        parameters["location_source"] = source_location.get("source")
 
         run = AnalysisRun(
             source_id=source_id,
@@ -322,27 +329,30 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
     return None
 
 
-def resume_upload_pipeline(source_id: str) -> str | None:
-    """Resume missing/stale derived stages for an existing recording."""
+def advance_upload_pipeline(
+    source_id: str,
+    analyzer_parameter_overrides: dict[str, dict] | None = None,
+) -> str | None:
+    """Advance exactly one serial stage of the automatic upload pipeline."""
     settings = get_settings()
+    if not settings.auto_analyze_uploads:
+        return None
+
+    overrides = analyzer_parameter_overrides or {}
     backfill_location_from_opening_slate(source_id)
 
     with SessionLocal() as db:
+        source = db.get(SourceRecording, source_id)
+        if not source or source.status != "ready":
+            return None
+
         runs = db.scalars(
             select(AnalysisRun)
             .where(AnalysisRun.source_id == source_id)
             .order_by(AnalysisRun.created_at.desc())
         ).all()
 
-        slate_run = next(
-            (
-                run
-                for run in runs
-                if run.analyzer == "slate-tone" and run.status == "complete"
-            ),
-            None,
-        )
-        active_slate_run = next(
+        active_slate = next(
             (
                 run
                 for run in runs
@@ -351,6 +361,31 @@ def resume_upload_pipeline(source_id: str) -> str | None:
             ),
             None,
         )
+        completed_slate = next(
+            (
+                run
+                for run in runs
+                if run.analyzer == "slate-tone" and run.status == "complete"
+            ),
+            None,
+        )
+
+        if active_slate:
+            return active_slate.id
+
+        if not completed_slate:
+            queued = queue_upload_analysis(source_id, overrides)
+            return queued[0] if queued else None
+
+        birdnet_overrides = dict(overrides.get(_BIRDNET_ANALYZER, {}))
+        if birdnet_overrides:
+            slate_parameters = dict(completed_slate.parameters or {})
+            existing_overrides = dict(slate_parameters.get(_BIRDNET_PARAMETERS, {}))
+            existing_overrides.update(birdnet_overrides)
+            slate_parameters[_BIRDNET_PARAMETERS] = existing_overrides
+            completed_slate.parameters = slate_parameters
+            db.commit()
+
         transcript_run = next(
             (
                 run
@@ -360,33 +395,68 @@ def resume_upload_pipeline(source_id: str) -> str | None:
             None,
         )
 
-    if not slate_run:
-        if active_slate_run:
-            return active_slate_run.id
-        queued = queue_upload_analysis(source_id)
-        return queued[0] if queued else None
-
-    if settings.accelerator.lower() in {"metal", "mps"}:
+    transcript_required = settings.accelerator.lower() in {"metal", "mps"}
+    if transcript_required:
         transcript_analyzer = get_analyzer(_SLATE_TRANSCRIPT_ANALYZER)
+        if transcript_run and transcript_run.status in {"queued", "running"}:
+            return transcript_run.id
+        if transcript_run and transcript_run.status == "failed":
+            return transcript_run.id
         if (
             transcript_run is None
             or transcript_run.analyzer_version != transcript_analyzer.version
-            or transcript_run.status == "failed"
         ):
-            return queue_slate_transcription(source_id, slate_run.id)
-        if transcript_run.status in {"queued", "running"}:
-            return transcript_run.id
-        if transcript_run.status == "complete":
-            location = backfill_location_from_opening_slate(source_id)
-            if location:
-                return queue_birdnet_analysis(source_id, transcript_run.id)
+            return queue_slate_transcription(source_id, completed_slate.id)
+        if transcript_run.status != "complete":
             return transcript_run.id
 
-    return queue_birdnet_analysis(source_id, slate_run.id)
+        location = backfill_location_from_opening_slate(source_id)
+        if not location:
+            return transcript_run.id
+        upstream_run_id = transcript_run.id
+    else:
+        with SessionLocal() as db:
+            source = db.get(SourceRecording, source_id)
+            location = (source.embedded_metadata or {}).get("location") if source else None
+        if not location:
+            return completed_slate.id
+        upstream_run_id = completed_slate.id
+
+    with SessionLocal() as db:
+        runs = db.scalars(
+            select(AnalysisRun)
+            .where(AnalysisRun.source_id == source_id)
+            .order_by(AnalysisRun.created_at.desc())
+        ).all()
+        birdnet_analyzer = get_analyzer(_BIRDNET_ANALYZER)
+        filtered_birdnet = next(
+            (
+                run
+                for run in runs
+                if run.analyzer == _BIRDNET_ANALYZER
+                and run.analyzer_version == birdnet_analyzer.version
+                and (run.parameters or {}).get("latitude") is not None
+                and (run.parameters or {}).get("longitude") is not None
+            ),
+            None,
+        )
+
+    if filtered_birdnet:
+        if filtered_birdnet.status in {"queued", "running", "failed"}:
+            return filtered_birdnet.id
+        if filtered_birdnet.status == "complete":
+            return maybe_queue_audacity_export(source_id)
+
+    return queue_birdnet_analysis(source_id, upstream_run_id)
+
+
+def resume_upload_pipeline(source_id: str) -> str | None:
+    """Compatibility wrapper for older callers."""
+    return advance_upload_pipeline(source_id)
 
 
 def upload_pipeline_status(source_id: str) -> dict:
-    """Return whether the current location-aware upload pipeline is actually complete."""
+    """Return explicit serial pipeline stage state for the UI."""
     settings = get_settings()
     backfill_location_from_opening_slate(source_id)
 
@@ -395,63 +465,120 @@ def upload_pipeline_status(source_id: str) -> dict:
         if not source:
             return {
                 "complete": False,
+                "current_stage": "ingest",
                 "location_ready": False,
                 "slate_transcript_status": None,
                 "birdnet_status": None,
                 "birdnet_location_filtered": False,
+                "stages": [],
             }
 
-        location = (source.embedded_metadata or {}).get("location")
         runs = db.scalars(
             select(AnalysisRun)
             .where(AnalysisRun.source_id == source_id)
             .order_by(AnalysisRun.created_at.desc())
         ).all()
-
+        slate_run = next((run for run in runs if run.analyzer == "slate-tone"), None)
         transcript_run = next(
             (run for run in runs if run.analyzer == _SLATE_TRANSCRIPT_ANALYZER),
             None,
         )
+
+        birdnet_analyzer = get_analyzer(_BIRDNET_ANALYZER)
         birdnet_run = next(
-            (run for run in runs if run.analyzer == _BIRDNET_ANALYZER),
+            (
+                run
+                for run in runs
+                if run.analyzer == _BIRDNET_ANALYZER
+                and run.analyzer_version == birdnet_analyzer.version
+                and (run.parameters or {}).get("latitude") is not None
+                and (run.parameters or {}).get("longitude") is not None
+            ),
             None,
         )
 
-        birdnet_location_filtered = False
-        if birdnet_run:
-            parameters = birdnet_run.parameters or {}
-            birdnet_location_filtered = (
-                parameters.get("latitude") is not None
-                and parameters.get("longitude") is not None
-            )
-            if birdnet_run.status == "complete" and not birdnet_location_filtered:
-                events = db.scalars(
-                    select(Event).where(Event.run_id == birdnet_run.id)
-                ).all()
-                birdnet_location_filtered = any(
-                    (event.attributes or {}).get("geo_filter_applied") is True
-                    for event in events
-                )
-
+        location = (source.embedded_metadata or {}).get("location")
         transcript_required = settings.accelerator.lower() in {"metal", "mps"}
-        transcript_complete = (
-            not transcript_required
-            or (transcript_run is not None and transcript_run.status == "complete")
+
+        ingest_status = (
+            "complete"
+            if source.status == "ready"
+            else "failed"
+            if source.status == "failed"
+            else "running"
+            if source.status == "processing"
+            else "pending"
         )
-        birdnet_complete = (
-            birdnet_run is not None
+        slate_status = slate_run.status if slate_run else "pending"
+
+        if transcript_required:
+            transcript_status = transcript_run.status if transcript_run else "pending"
+        elif location:
+            transcript_status = "skipped"
+        else:
+            transcript_status = "blocked"
+
+        if location:
+            location_status = "complete"
+        elif transcript_run and transcript_run.status == "failed":
+            location_status = "failed"
+        elif transcript_run and transcript_run.status == "complete":
+            location_status = "failed"
+        elif transcript_status == "blocked":
+            location_status = "blocked"
+        else:
+            location_status = "pending"
+
+        birdnet_status = birdnet_run.status if birdnet_run else "pending"
+        birdnet_location_filtered = bool(
+            birdnet_run
+            and (birdnet_run.parameters or {}).get("latitude") is not None
+            and (birdnet_run.parameters or {}).get("longitude") is not None
+        )
+
+        stages = [
+            {"id": "ingest", "label": "Prepare audio", "status": ingest_status},
+            {"id": "slate-tone", "label": "Detect slate beeps", "status": slate_status},
+            {
+                "id": "slate-transcript",
+                "label": "Transcribe opening slate",
+                "status": transcript_status,
+            },
+            {"id": "location", "label": "Resolve location", "status": location_status},
+            {
+                "id": "birdnet",
+                "label": "Location-filtered BirdNET",
+                "status": birdnet_status,
+            },
+        ]
+
+        current_stage = None
+        for stage in stages:
+            if stage["status"] not in {"complete", "skipped"}:
+                current_stage = stage["id"]
+                break
+
+        complete = bool(
+            location
+            and birdnet_run
             and birdnet_run.status == "complete"
             and birdnet_location_filtered
+            and (
+                not transcript_required
+                or (transcript_run and transcript_run.status == "complete")
+            )
         )
 
         return {
-            "complete": bool(location) and transcript_complete and birdnet_complete,
+            "complete": complete,
+            "current_stage": current_stage,
             "location_ready": bool(location),
             "slate_transcript_status": (
                 transcript_run.status if transcript_run else None
             ),
             "birdnet_status": birdnet_run.status if birdnet_run else None,
             "birdnet_location_filtered": birdnet_location_filtered,
+            "stages": stages,
         }
 
 
@@ -460,7 +587,9 @@ def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str |
     if not get_settings().auto_audacity_export and not force:
         return None
 
-    settings = get_settings()
+    if not force and not upload_pipeline_status(source_id)["complete"]:
+        return None
+
     with SessionLocal() as db:
         source = db.scalar(
             select(SourceRecording)
@@ -469,34 +598,6 @@ def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str |
         )
         if not source:
             return None
-
-        runs = db.scalars(
-            select(AnalysisRun)
-            .where(AnalysisRun.source_id == source_id)
-            .order_by(AnalysisRun.created_at.asc())
-        ).all()
-        auto_runs = [
-            run
-            for run in runs
-            if (run.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
-        ]
-        latest_by_analyzer = {run.analyzer: run for run in auto_runs}
-        expected = {"slate-tone", _BIRDNET_ANALYZER}
-        slate_run = latest_by_analyzer.get("slate-tone")
-        if settings.accelerator.lower() in {"metal", "mps"} and (
-            _SLATE_TRANSCRIPT_ANALYZER in latest_by_analyzer
-            or (slate_run and slate_run.status == "complete")
-        ):
-            expected.add(_SLATE_TRANSCRIPT_ANALYZER)
-
-        if not force:
-            if not expected.issubset(latest_by_analyzer):
-                return None
-            if any(
-                latest_by_analyzer[analyzer].status not in _TERMINAL_RUN_STATES
-                for analyzer in expected
-            ):
-                return None
 
         existing_jobs = db.scalars(
             select(Job)
