@@ -9,6 +9,7 @@ class Detection:
     end_seconds: float
     category: str
     label: str
+    text: str | None = None
     confidence: float | None = None
     frequency_low_hz: float | None = None
     frequency_high_hz: float | None = None
