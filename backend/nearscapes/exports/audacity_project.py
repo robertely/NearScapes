@@ -67,6 +67,7 @@ class AudacityPipe:
         env["HOME"] = str(self.home)
         env["XDG_CONFIG_HOME"] = str(self.home / ".config")
         env["NO_AT_BRIDGE"] = "1"
+        env["GDK_BACKEND"] = "x11"
         return env
 
     def _log_tail(self) -> str:
@@ -138,6 +139,11 @@ class AudacityPipe:
 
         self.to_fd = os.open(self.to_pipe, os.O_WRONLY)
         self.from_fd = os.open(self.from_pipe, os.O_RDONLY | os.O_NONBLOCK)
+
+        # The module creates its FIFOs slightly before Audacity's GUI event loop
+        # is ready to execute commands. The official bridge script also waits
+        # after pipe creation for this reason.
+        time.sleep(1.5)
 
     def command(self, command: str) -> str:
         if self.to_fd is None or self.from_fd is None:
