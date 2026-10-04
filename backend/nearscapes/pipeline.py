@@ -272,11 +272,22 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
             )
             .order_by(AnalysisRun.created_at.desc())
         ).first()
+        source_location = (source.embedded_metadata or {}).get("location") or {}
+        location_available = (
+            source_location.get("latitude") is not None
+            and source_location.get("longitude") is not None
+        )
+        existing_parameters = (existing.parameters or {}) if existing else {}
+        existing_is_location_filtered = (
+            existing_parameters.get("latitude") is not None
+            and existing_parameters.get("longitude") is not None
+        )
         if (
             existing
             and (existing.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
             and existing.analyzer_version == analyzer.version
             and existing.status in {"queued", "running", "complete"}
+            and (not location_available or existing_is_location_filtered)
         ):
             return existing.id
 
