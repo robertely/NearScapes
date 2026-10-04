@@ -28,7 +28,7 @@
           <h2 id="filename"></h2>
           <div id="metadata" class="metadata"></div><div id="location" class="metadata"></div>
         </div>
-        <div class="actions"><button id="run-slate" disabled>Rerun 1 kHz slate detector</button><button id="run-birdnet" disabled>Rerun BirdNET wildlife</button><a id="analysis-json" class="button-link" href="#" target="_blank">Analysis JSON</a><a id="audacity-project" class="button-link hidden" href="#" download>Audacity project (.aup3)</a></div>
+        <div class="actions"><button id="run-slate" disabled>Rerun 1 kHz slate detector</button><label class="confidence-control" for="birdnet-confidence"><span>Wildlife confidence</span><input id="birdnet-confidence" type="range" min="0.25" max="0.95" step="0.05" value="0.60"><output id="birdnet-confidence-value" for="birdnet-confidence">60%</output></label><button id="run-birdnet" disabled>Rerun BirdNET wildlife</button><a id="analysis-json" class="button-link" href="#" target="_blank">Analysis JSON</a><a id="audacity-project" class="button-link hidden" href="#" download>Audacity project (.aup3)</a></div>
       </div>
 
       <audio id="audio" controls preload="metadata"></audio>
