@@ -259,9 +259,6 @@ def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str |
         return None
 
     settings = get_settings()
-    expected = {"slate-tone", _BIRDNET_ANALYZER}
-    if settings.accelerator == "metal":
-        expected.add(_SLATE_TRANSCRIPT_ANALYZER)
     with SessionLocal() as db:
         source = db.scalar(
             select(SourceRecording)
@@ -282,6 +279,13 @@ def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str |
             if (run.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
         ]
         latest_by_analyzer = {run.analyzer: run for run in auto_runs}
+        expected = {"slate-tone", _BIRDNET_ANALYZER}
+        slate_run = latest_by_analyzer.get("slate-tone")
+        if settings.accelerator == "metal" and (
+            _SLATE_TRANSCRIPT_ANALYZER in latest_by_analyzer
+            or (slate_run and slate_run.status == "complete")
+        ):
+            expected.add(_SLATE_TRANSCRIPT_ANALYZER)
 
         if not force:
             if not expected.issubset(latest_by_analyzer):
