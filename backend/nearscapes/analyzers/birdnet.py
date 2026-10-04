@@ -164,6 +164,7 @@ class BirdNetAnalyzer:
         context: AnalyzerContext,
         parameters: dict,
     ) -> list[Detection]:
+        settings = get_settings()
         try:
             import birdnet
         except ImportError as exc:
