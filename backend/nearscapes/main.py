@@ -96,7 +96,7 @@ def list_sources(db: DbSession) -> list[dict]:
 async def upload_source(
     file: UploadedFile,
     db: DbSession,
-    birdnet_confidence: Annotated[float, Form()] = 0.60,
+    birdnet_confidence: Annotated[float, Form()] = settings.birdnet_confidence_default,
 ) -> dict:
     if not 0.0 <= birdnet_confidence <= 1.0:
         raise HTTPException(400, "birdnet_confidence must be between 0 and 1")
