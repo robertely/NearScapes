@@ -18,3 +18,12 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run ruff check backend tests
       - run: uv run pytest
+
+  audacity-export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Audacity exporter image
+        run: docker build --target audacity -t nearscapes-audacity:ci .
+      - name: Generate an AUP3 project
+        run: docker run --rm nearscapes-audacity:ci python -m nearscapes.exports.smoke
