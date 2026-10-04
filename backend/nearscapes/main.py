@@ -6,7 +6,7 @@ import mimetypes
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
@@ -93,7 +93,15 @@ def list_sources(db: DbSession) -> list[dict]:
 
 
 @app.post("/api/sources", status_code=202)
-async def upload_source(file: UploadedFile, db: DbSession) -> dict:
+async def upload_source(
+    file: UploadedFile,
+    db: DbSession,
+    birdnet_confidence: Annotated[float, Form()] = 0.60,
+) -> dict:
+    if not 0.0 <= birdnet_confidence <= 1.0:
+        raise HTTPException(400, "birdnet_confidence must be between 0 and 1")
+    analysis_overrides = {"birdnet": {"confidence": birdnet_confidence}}
+
     filename = Path(file.filename or "upload").name
     hasher = hashlib.sha256()
     byte_count = 0
@@ -113,7 +121,7 @@ async def upload_source(file: UploadedFile, db: DbSession) -> dict:
         existing = db.scalar(select(SourceRecording).where(SourceRecording.sha256 == sha256))
         if existing:
             if existing.status == "ready":
-                queue_upload_analysis(existing.id)
+                queue_upload_analysis(existing.id, analysis_overrides)
                 maybe_queue_audacity_export(existing.id)
             return {"source": source_payload(existing), "job": None, "deduplicated": True}
 
@@ -130,7 +138,7 @@ async def upload_source(file: UploadedFile, db: DbSession) -> dict:
         job = Job(kind="ingest", source_id=source.id)
         db.add(job)
         db.commit()
-        dispatch_ingest(job.id, source.id)
+        dispatch_ingest(job.id, source.id, analysis_overrides)
         return {
             "source": source_payload(source),
             "job": {"id": job.id, "status": job.status},
