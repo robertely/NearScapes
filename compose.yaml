@@ -34,7 +34,7 @@ services:
       NEARSCAPES_LOG_LEVEL: ${NEARSCAPES_LOG_LEVEL:-INFO}
       NEARSCAPES_AUTO_ANALYZE_UPLOADS: ${NEARSCAPES_AUTO_ANALYZE_UPLOADS:-true}
       NEARSCAPES_AUTO_AUDACITY_EXPORT: ${NEARSCAPES_AUTO_AUDACITY_EXPORT:-true}
-      NEARSCAPES_ACCELERATOR: ${NEARSCAPES_ACCELERATOR:-vulkan}
+      NEARSCAPES_ACCELERATOR: ${NEARSCAPES_ACCELERATOR:-cpu}
       NEARSCAPES_MAX_UPLOAD_BYTES: ${NEARSCAPES_MAX_UPLOAD_BYTES:-2147483648}
       NEARSCAPES_WAVEFORM_POINTS: ${NEARSCAPES_WAVEFORM_POINTS:-4000}
       NEARSCAPES_PCM_SAMPLE_RATE: ${NEARSCAPES_PCM_SAMPLE_RATE:-8000}
@@ -70,12 +70,8 @@ services:
 
   worker:
     build: .
-    gpus: all
     command: ["dramatiq", "nearscapes.jobs.tasks", "--processes", "1", "--threads", "2", "--queues", "analysis"]
-    environment:
-      <<: *app-env
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,video
+    environment: *app-env
     depends_on:
       migrate:
         condition: service_completed_successfully
