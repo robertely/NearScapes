@@ -26,7 +26,7 @@ _AUTO_PIPELINE_ANALYZERS = {"slate-tone", "birdnet"}
 _UPLOAD_START_ANALYZERS = ("slate-tone",)
 
 
-def _default_parameters(analyzer_id: str) -> dict:
+def default_parameters(analyzer_id: str) -> dict:
     parameters = deepcopy(_DEFAULT_PARAMETERS.get(analyzer_id, {}))
     if analyzer_id == "birdnet":
         parameters["confidence"] = get_settings().birdnet_confidence_default
@@ -40,7 +40,7 @@ def list_analyzers() -> list[dict]:
             "version": item.version,
             "display_name": item.display_name,
             "auto_run": item.id in _AUTO_PIPELINE_ANALYZERS,
-            "default_parameters": _default_parameters(item.id),
+            "default_parameters": default_parameters(item.id),
         }
         for item in _ANALYZERS.values()
     ]
@@ -51,7 +51,7 @@ def autorun_specs() -> list[dict]:
     return [
         {
             "analyzer": analyzer_id,
-            "parameters": _default_parameters(analyzer_id),
+            "parameters": default_parameters(analyzer_id),
         }
         for analyzer_id in _UPLOAD_START_ANALYZERS
     ]
