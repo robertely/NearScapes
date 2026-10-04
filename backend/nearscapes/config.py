@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     auto_analyze_uploads: bool = True
     auto_audacity_export: bool = True
     accelerator: str = "cpu"
+    inference_url: str = "http://host.docker.internal:8787"
+    inference_timeout_seconds: float = 3600.0
 
     slate_frequency_hz: float = 1000.0
     slate_frequency_tolerance_hz: float = 30.0

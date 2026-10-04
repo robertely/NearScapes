@@ -6,7 +6,7 @@ See [PLAN.md](PLAN.md) for the larger design: independent ASR and bioacoustic pa
 
 ## Run
 
-Requirements: Docker with Compose.
+Requirements: Docker with Compose and `just`. On Apple Silicon, `uv` is also required for the native Metal inference helper.
 
 ```bash
 just run
@@ -14,7 +14,7 @@ just run
 
 Then open <http://localhost:8000>.
 
-`just run` is the supported local entrypoint. As native Apple-Silicon inference is added, that command will continue to hide the split between the Dockerized app and the macOS Metal inference helper.
+`just run` is the supported local entrypoint. On Apple Silicon it starts and verifies a native PyTorch/MPS helper, then starts the Dockerized app with BirdNET routed to that helper. The app refuses to silently fall back to CPU for a Metal-configured BirdNET run.
 
 The first startup creates Postgres/Redis, runs the initial database migration, and starts separate web and background-worker processes. Uploaded audio is kept in the `data` Docker volume; the source file is never modified.
 
@@ -45,14 +45,14 @@ Important defaults:
 
 Apple M2 is a first-class deployment target. NearScapes keeps the web/API, persistence, DSP, and job orchestration in Docker, but runs supported ML inference through a small native macOS Metal service. Standard Linux containers on Docker Desktop do not provide general Metal passthrough, so forcing inference into the container would throw away the M2 GPU.
 
-For Whisper, the intended first backend is `whisper.cpp` with Metal enabled. MLX is the preferred path for other models when a maintained MLX implementation exists. The Docker worker talks to the host process through a configured endpoint such as:
+BirdNET V3 uses its PyTorch/TorchScript model directly on the MPS device in the native helper. The Docker worker decodes 32 kHz mono float32 PCM and streams it over the local host bridge. The Docker worker talks to the host process through:
 
 ```text
-NEARSCAPES_INFERENCE_BACKEND=metal
+NEARSCAPES_ACCELERATOR=metal
 NEARSCAPES_INFERENCE_URL=http://host.docker.internal:8787
 ```
 
-GPU-requested jobs must fail clearly if the Metal service is unavailable; they should not silently fall back to slow CPU inference.
+GPU-requested jobs fail clearly if the Metal service is unavailable; they do not silently fall back to CPU. Run `just metal-check` to verify that PyTorch sees the M2 GPU through MPS.
 
 ## Development
 

@@ -4,7 +4,11 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+import httpx
+
 from nearscapes.analyzers.base import AnalyzerContext, Detection
+from nearscapes.audio.pcm import ensure_mono_pcm
+from nearscapes.config import get_settings
 
 
 def _seconds(value) -> float:
@@ -51,10 +55,113 @@ def _split_species_name(value: str) -> tuple[str | None, str]:
 
 class BirdNetAnalyzer:
     id = "birdnet"
-    version = "0.1.0"
-    display_name = "BirdNET+ V3 wildlife (CPU)"
+    version = "0.2.0"
+    display_name = "BirdNET+ V3 wildlife"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
+        settings = get_settings()
+        accelerator = settings.accelerator.lower()
+        if accelerator in {"metal", "mps"}:
+            return self._analyze_metal(context, parameters)
+        if accelerator != "cpu":
+            raise RuntimeError(
+                f"Unsupported BirdNET accelerator '{settings.accelerator}'. "
+                "Use cpu or metal."
+            )
+        return self._analyze_cpu(context, parameters)
+
+    def _analyze_metal(
+        self,
+        context: AnalyzerContext,
+        parameters: dict,
+    ) -> list[Detection]:
+        settings = get_settings()
+        threshold = float(parameters.get("confidence", 0.25))
+        locale = str(parameters.get("locale", "en_us"))
+        batch_size = int(parameters.get("batch_size", 16))
+        top_k = int(parameters.get("top_k", 5))
+
+        pcm_path = ensure_mono_pcm(
+            context.source_path,
+            context.cache_dir,
+            sample_rate=32_000,
+        )
+
+        try:
+            with pcm_path.open("rb") as pcm, httpx.Client(
+                timeout=settings.inference_timeout_seconds
+            ) as client:
+                response = client.post(
+                    f"{settings.inference_url.rstrip('/')}/v1/birdnet/predict",
+                    data={
+                        "sample_rate": "32000",
+                        "confidence": str(threshold),
+                        "batch_size": str(batch_size),
+                        "top_k": str(top_k),
+                        "locale": locale,
+                    },
+                    files={
+                        "file": (
+                            "audio-f32le.raw",
+                            pcm,
+                            "application/octet-stream",
+                        )
+                    },
+                )
+        except httpx.RequestError as exc:
+            raise RuntimeError(
+                "BirdNET Metal inference service is unavailable at "
+                f"{settings.inference_url}. Run NearScapes with 'just run' on Apple Silicon."
+            ) from exc
+
+        if response.status_code >= 400:
+            detail = response.text
+            try:
+                detail = response.json().get("detail", detail)
+            except ValueError:
+                pass
+            raise RuntimeError(f"BirdNET Metal inference failed: {detail}")
+
+        payload = response.json()
+        if payload.get("device") != "MPS":
+            raise RuntimeError(
+                f"Metal service returned unexpected device {payload.get('device')!r}; "
+                "refusing silent CPU fallback."
+            )
+
+        detections: list[Detection] = []
+        for item in payload.get("events", []):
+            attributes = dict(item.get("attributes") or {})
+            attributes["remote_inference"] = settings.inference_url
+            detections.append(
+                Detection(
+                    start_seconds=float(item["start_seconds"]),
+                    end_seconds=float(item["end_seconds"]),
+                    category=str(item.get("category", "wildlife")),
+                    label=str(item["label"]),
+                    confidence=(
+                        float(item["confidence"])
+                        if item.get("confidence") is not None
+                        else None
+                    ),
+                    attributes=attributes,
+                )
+            )
+
+        return sorted(
+            detections,
+            key=lambda item: (
+                item.start_seconds,
+                item.end_seconds,
+                -(item.confidence or 0.0),
+            ),
+        )
+
+    def _analyze_cpu(
+        self,
+        context: AnalyzerContext,
+        parameters: dict,
+    ) -> list[Detection]:
         try:
             import birdnet
         except ImportError as exc:
@@ -104,6 +211,7 @@ class BirdNetAnalyzer:
                         "model": "BirdNET+ V3.0",
                         "backend": backend,
                         "device": "CPU",
+                        "accelerator": "cpu",
                         "input_path": str(input_path),
                     },
                 )

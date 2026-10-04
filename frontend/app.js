@@ -214,7 +214,8 @@ function renderEvents() {
     row.className = "event-row";
     const confidence = event.confidence == null ? "" : ` · ${(event.confidence * 100).toFixed(0)}%`;
     const db = event.attributes?.median_tone_to_guard_db == null ? "" : ` · ${event.attributes.median_tone_to_guard_db.toFixed(1)} dB`;
-    row.innerHTML = `<span><strong>${event.label}</strong><small>${run.analyzer}${confidence}${db}</small></span><span>${formatTime(event.start_seconds)}–${formatTime(event.end_seconds)}</span>`;
+    const device = event.attributes?.device ? ` · ${event.attributes.device}` : "";
+    row.innerHTML = `<span><strong>${event.label}</strong><small>${run.analyzer}${confidence}${db}${device}</small></span><span>${formatTime(event.start_seconds)}–${formatTime(event.end_seconds)}</span>`;
     row.addEventListener("click", () => {
       $("audio").currentTime = event.start_seconds;
       $("audio").play();
@@ -251,7 +252,7 @@ async function runBirdNet() {
   await runAnalyzer(
     "birdnet",
     { backend: "onnx", precision: "fp16", confidence: 0.25, n_workers: 1 },
-    "BirdNET CPU",
+    "BirdNET wildlife",
   );
 }
 
