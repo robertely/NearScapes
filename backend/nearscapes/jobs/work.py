@@ -13,12 +13,7 @@ from nearscapes.audio.waveform import calculate_waveform, write_waveform
 from nearscapes.config import get_settings
 from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
 from nearscapes.db.session import SessionLocal
-from nearscapes.pipeline import (
-    maybe_queue_audacity_export,
-    queue_birdnet_analysis,
-    queue_slate_transcription,
-    queue_upload_analysis,
-)
+from nearscapes.pipeline import advance_upload_pipeline
 from nearscapes.storage.local import LocalStorage
 
 logger = logging.getLogger(__name__)
@@ -106,7 +101,7 @@ def ingest_source_impl(
             job.finished_at = _now()
             db.commit()
 
-        queue_upload_analysis(source_id, analyzer_parameter_overrides)
+        advance_upload_pipeline(source_id, analyzer_parameter_overrides)
     except Exception as exc:
         logger.exception(
             "source ingestion failed", extra={"job_id": job_id, "source_id": source_id}
@@ -200,18 +195,8 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
             db.commit()
 
         is_upload_pipeline = parameters.get("_pipeline") == "upload"
-        if source_id and is_upload_pipeline and analyzer_id == "slate-tone":
-            transcript_run_id = queue_slate_transcription(source_id, run_id)
-            if transcript_run_id is None:
-                queue_birdnet_analysis(source_id, run_id)
-        elif source_id and is_upload_pipeline and analyzer_id == "slate-transcript":
-            with SessionLocal() as db:
-                source = db.get(SourceRecording, source_id)
-                location = (source.embedded_metadata or {}).get("location") if source else None
-            if location:
-                queue_birdnet_analysis(source_id, run_id)
-        if source_id:
-            maybe_queue_audacity_export(source_id)
+        if source_id and is_upload_pipeline:
+            advance_upload_pipeline(source_id)
     except Exception as exc:
         logger.exception("analysis failed", extra={"job_id": job_id, "run_id": run_id})
         with SessionLocal() as db:
@@ -222,9 +207,4 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
                 run.finished_at = _now()
                 db.commit()
         _fail_job(job_id, str(exc))
-        if source_id and parameters.get("_pipeline") == "upload":
-            if analyzer_id in {"slate-tone", "slate-transcript"}:
-                queue_birdnet_analysis(source_id, run_id)
-        if source_id:
-            maybe_queue_audacity_export(source_id)
         raise
