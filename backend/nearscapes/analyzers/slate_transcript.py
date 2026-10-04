@@ -9,7 +9,6 @@ from nearscapes.analyzers.base import AnalyzerContext, Detection
 from nearscapes.audio.pcm import ensure_mono_pcm, load_pcm
 from nearscapes.config import get_settings
 
-
 _TIME_RE = re.compile(
     r"""^\s*(?:(?:the\s+)?time\s+is\s+)?(?P<hour>1[0-2]|0?[1-9])"""
     r"""(?:\s*[:.]\s*|\s+)(?P<minute>[0-5]\d)\s*"""
