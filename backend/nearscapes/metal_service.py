@@ -11,6 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 app = FastAPI(title="NearScapes Metal Inference", version="0.1.0")
 
 _MODEL_LOCK = threading.Lock()
+_GEO_LOCK = threading.Lock()
 _WHISPER_LOCK = threading.Lock()
 _SAMPLE_RATE = 32_000
 _WHISPER_SAMPLE_RATE = 16_000
@@ -83,6 +84,43 @@ def _labels(locale: str) -> tuple[str, ...]:
     return tuple(labels)
 
 
+@lru_cache(maxsize=16)
+def _geo_model(locale: str):
+    import birdnet
+
+    return birdnet.load(
+        "geo",
+        "3.0",
+        "onnx",
+        lang=locale,
+        precision="fp16",
+    )
+
+
+def _geo_support(
+    latitude: float,
+    longitude: float,
+    *,
+    locale: str,
+    threshold: float,
+) -> dict[str, float]:
+    model = _geo_model(locale)
+    with _GEO_LOCK:
+        result = model.predict(
+            latitude,
+            longitude,
+            min_confidence=threshold,
+            device="CPU",
+        )
+
+    support: dict[str, float] = {}
+    for row in result.to_structured_array(sort_by=None):
+        scientific_name, _ = _species_parts(str(row["species_name"]))
+        if scientific_name:
+            support[scientific_name] = float(row["confidence"])
+    return support
+
+
 def _species_parts(value: str) -> tuple[str | None, str]:
     if "_" not in value:
         return None, value
@@ -109,11 +147,25 @@ def _run_birdnet(
     batch_size: int,
     top_k: int,
     locale: str,
+    geo_support: dict[str, float] | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> dict:
     import torch
 
     model, device, model_path = _model()
     labels = _labels(locale)
+    allowed_indices: list[int] | None = None
+    if geo_support is not None:
+        allowed_indices = [
+            index
+            for index, label in enumerate(labels)
+            if _species_parts(label)[0] in geo_support
+        ]
+        if not allowed_indices:
+            raise RuntimeError(
+                "BirdNET GeoModel returned no species that match the acoustic model"
+            )
     bytes_per_batch = _SEGMENT_SAMPLES * batch_size * 4
     segment_index = 0
     events: list[dict] = []
@@ -146,8 +198,17 @@ def _run_birdnet(
             if predictions.ndim == 1:
                 predictions = predictions.unsqueeze(0)
 
-            k = min(top_k, int(predictions.shape[1]))
-            values, indices = torch.topk(predictions, k=k, dim=1)
+            ranked_predictions = predictions
+            if allowed_indices is not None:
+                allowed_tensor = torch.tensor(
+                    allowed_indices,
+                    dtype=torch.long,
+                    device=device,
+                )
+                ranked_predictions = predictions.index_select(1, allowed_tensor)
+
+            k = min(top_k, int(ranked_predictions.shape[1]))
+            values, indices = torch.topk(ranked_predictions, k=k, dim=1)
             values_np = values.detach().cpu().numpy()
             indices_np = indices.detach().cpu().numpy()
 
@@ -158,7 +219,12 @@ def _run_birdnet(
                     confidence = float(score)
                     if confidence < threshold:
                         continue
-                    raw_name = labels[int(label_index)]
+                    resolved_label_index = (
+                        allowed_indices[int(label_index)]
+                        if allowed_indices is not None
+                        else int(label_index)
+                    )
+                    raw_name = labels[resolved_label_index]
                     scientific_name, common_name = _species_parts(raw_name)
                     events.append(
                         {
@@ -174,6 +240,14 @@ def _run_birdnet(
                                 "backend": "pt",
                                 "device": "MPS",
                                 "accelerator": "metal",
+                                "geo_filter_applied": geo_support is not None,
+                                "geo_confidence": (
+                                    geo_support.get(scientific_name)
+                                    if geo_support is not None and scientific_name
+                                    else None
+                                ),
+                                "latitude": latitude,
+                                "longitude": longitude,
                             },
                         }
                     )
@@ -186,6 +260,8 @@ def _run_birdnet(
         "device": "MPS",
         "sample_rate": _SAMPLE_RATE,
         "segment_seconds": _SEGMENT_SECONDS,
+        "geo_filter_applied": geo_support is not None,
+        "geo_species_count": len(geo_support or {}),
         "events": events,
     }
 
@@ -194,10 +270,13 @@ def _run_birdnet(
 def birdnet_predict(
     file: Annotated[UploadFile, File(...)],
     sample_rate: Annotated[int, Form()] = _SAMPLE_RATE,
-    confidence: Annotated[float, Form()] = 0.25,
+    confidence: Annotated[float, Form()] = 0.85,
     batch_size: Annotated[int, Form()] = 16,
     top_k: Annotated[int, Form()] = 5,
     locale: Annotated[str, Form()] = "en_us",
+    latitude: Annotated[float | None, Form()] = None,
+    longitude: Annotated[float | None, Form()] = None,
+    geo_confidence: Annotated[float, Form()] = 0.03,
 ) -> dict:
     if sample_rate != _SAMPLE_RATE:
         raise HTTPException(
@@ -210,9 +289,31 @@ def birdnet_predict(
         raise HTTPException(status_code=400, detail="batch_size must be between 1 and 64")
     if not 1 <= top_k <= 20:
         raise HTTPException(status_code=400, detail="top_k must be between 1 and 20")
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(
+            status_code=400,
+            detail="latitude and longitude must be supplied together",
+        )
+    if latitude is not None and not -90.0 <= latitude <= 90.0:
+        raise HTTPException(status_code=400, detail="latitude is out of range")
+    if longitude is not None and not -180.0 <= longitude <= 180.0:
+        raise HTTPException(status_code=400, detail="longitude is out of range")
+    if not 0.0 <= geo_confidence <= 1.0:
+        raise HTTPException(
+            status_code=400,
+            detail="geo_confidence must be between 0 and 1",
+        )
 
     try:
         _mps_status()
+        geo_support = None
+        if latitude is not None and longitude is not None:
+            geo_support = _geo_support(
+                latitude,
+                longitude,
+                locale=locale,
+                threshold=geo_confidence,
+            )
         file.file.seek(0)
         return _run_birdnet(
             file.file,
@@ -220,6 +321,9 @@ def birdnet_predict(
             batch_size=batch_size,
             top_k=top_k,
             locale=locale,
+            geo_support=geo_support,
+            latitude=latitude,
+            longitude=longitude,
         )
     except HTTPException:
         raise
