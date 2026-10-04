@@ -117,3 +117,35 @@ def test_rejects_invalid_opening_slate_coordinates():
     assert parse_opening_location(
         "This is a recording at 139.81234, -205.12345."
     ) is None
+
+
+
+def test_parses_opening_slate_coordinates_with_whitespace_separator():
+    assert parse_opening_location(
+        "This is Robert Ely recording at 39.8123 -105.1234. "
+        "The current time is 11:20 AM."
+    ) == {
+        "latitude": 39.8123,
+        "longitude": -105.1234,
+        "source": "opening-slate",
+    }
+
+
+def test_parses_opening_slate_coordinates_with_degrees_and_unicode_minus():
+    assert parse_opening_location(
+        "This is Robert Ely recording at 39.8123 degrees, −105.1234 degrees."
+    ) == {
+        "latitude": 39.8123,
+        "longitude": -105.1234,
+        "source": "opening-slate",
+    }
+
+
+def test_parses_opening_slate_labelled_coordinates_with_of():
+    assert parse_opening_location(
+        "Latitude of 39.8123 and longitude of minus 105.1234."
+    ) == {
+        "latitude": 39.8123,
+        "longitude": -105.1234,
+        "source": "opening-slate",
+    }
