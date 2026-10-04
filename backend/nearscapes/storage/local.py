@@ -16,10 +16,13 @@ class LocalStorage:
         for path in (self.sources, self.cache, self.exports, self.tmp):
             path.mkdir(parents=True, exist_ok=True)
 
-    def source_path(self, sha256: str) -> Path:
+    def source_path(self, sha256: str, filename: str | None = None) -> Path:
         directory = self.sources / sha256[:2] / sha256
         directory.mkdir(parents=True, exist_ok=True)
-        return directory / "source"
+        suffix = Path(filename or "").suffix.lower()
+        if not re.fullmatch(r"\.[a-z0-9]{1,10}", suffix):
+            suffix = ""
+        return directory / f"source{suffix}"
 
     def cache_dir(self, sha256: str) -> Path:
         directory = self.cache / sha256[:2] / sha256
