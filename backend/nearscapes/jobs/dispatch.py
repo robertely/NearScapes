@@ -21,3 +21,14 @@ def dispatch_analysis(job_id: str, run_id: str) -> None:
     from nearscapes.jobs.tasks import execute_analysis
 
     execute_analysis.send(job_id, run_id)
+
+
+def dispatch_audacity_export(job_id: str, source_id: str) -> None:
+    if get_settings().queue_mode == "inline":
+        from nearscapes.exports.audacity_project import export_audacity_impl
+
+        export_audacity_impl(job_id, source_id)
+        return
+    from nearscapes.jobs.audacity_tasks import export_audacity_project
+
+    export_audacity_project.send(job_id, source_id)
