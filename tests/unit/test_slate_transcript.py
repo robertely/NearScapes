@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from nearscapes.analyzers.slate_transcript import (
     parse_announced_time,
     parse_opening_location,
+    parse_recording_metadata,
 )
 from nearscapes.pipeline import build_slate_transcription_windows
 
@@ -15,7 +16,7 @@ def _event(start: float, end: float, category: str):
     )
 
 
-def test_bracketed_region_becomes_transcription_window():
+def test_bracketed_region_creates_separate_slate_and_metadata_windows():
     events = [
         _event(1.0, 3.0, "slate-marker"),
         _event(3.0, 8.0, "slate-region"),
@@ -24,8 +25,9 @@ def test_bracketed_region_becomes_transcription_window():
 
     windows = build_slate_transcription_windows(
         events,
-        source_duration_seconds=60.0,
+        source_duration_seconds=90.0,
         post_seconds=30.0,
+        recording_metadata_seconds=60.0,
     )
 
     assert windows == [
@@ -33,8 +35,34 @@ def test_bracketed_region_becomes_transcription_window():
             "start_seconds": 3.0,
             "end_seconds": 8.0,
             "boundary": "opening-slate",
-        }
+        },
+        {
+            "start_seconds": 10.0,
+            "end_seconds": 70.0,
+            "boundary": "recording-metadata",
+        },
     ]
+
+
+def test_recording_metadata_window_is_truncated_at_end_of_recording():
+    events = [
+        _event(1.0, 3.0, "slate-marker"),
+        _event(3.0, 8.0, "slate-region"),
+        _event(8.0, 10.0, "slate-marker"),
+    ]
+
+    windows = build_slate_transcription_windows(
+        events,
+        source_duration_seconds=45.0,
+        post_seconds=30.0,
+        recording_metadata_seconds=60.0,
+    )
+
+    assert windows[1] == {
+        "start_seconds": 10.0,
+        "end_seconds": 45.0,
+        "boundary": "recording-metadata",
+    }
 
 
 def test_unpaired_beep_uses_post_window():
@@ -161,3 +189,23 @@ def test_parses_whisper_split_decimal_in_labelled_coordinates():
         "source": "opening-slate",
     }
 
+
+
+def test_parses_microphone_from_recording_metadata():
+    assert parse_recording_metadata(
+        "Microphone Rode VideoMic GO II. Light wind, birds to the west."
+    ) == {
+        "microphone": "Rode VideoMic GO II",
+    }
+
+
+def test_parses_natural_language_microphone_metadata():
+    assert parse_recording_metadata(
+        "Microphone is a Sennheiser MKH 416; recorder is a Tascam."
+    ) == {
+        "microphone": "Sennheiser MKH 416",
+    }
+
+
+def test_recording_metadata_ignores_unlabelled_model_names():
+    assert parse_recording_metadata("Using the Rode VideoMic GO II today.") == {}
