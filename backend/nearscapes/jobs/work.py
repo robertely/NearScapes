@@ -12,7 +12,11 @@ from nearscapes.audio.waveform import calculate_waveform, write_waveform
 from nearscapes.config import get_settings
 from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
 from nearscapes.db.session import SessionLocal
-from nearscapes.pipeline import maybe_queue_audacity_export, queue_upload_analysis
+from nearscapes.pipeline import (
+    maybe_queue_audacity_export,
+    queue_slate_transcription,
+    queue_upload_analysis,
+)
 from nearscapes.storage.local import LocalStorage
 
 logger = logging.getLogger(__name__)
@@ -141,6 +145,7 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
                         end_seconds=detection.end_seconds,
                         category=detection.category,
                         label=detection.label,
+                        text=detection.text,
                         confidence=detection.confidence,
                         frequency_low_hz=detection.frequency_low_hz,
                         frequency_high_hz=detection.frequency_high_hz,
@@ -155,6 +160,8 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
             job.finished_at = _now()
             db.commit()
 
+        if source_id and analyzer_id == "slate-tone":
+            queue_slate_transcription(source_id, run_id)
         if source_id:
             maybe_queue_audacity_export(source_id)
     except Exception as exc:
