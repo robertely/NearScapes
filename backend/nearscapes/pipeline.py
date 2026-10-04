@@ -87,7 +87,7 @@ def build_slate_transcription_windows(
                 {
                     "start_seconds": float(region.start_seconds),
                     "end_seconds": float(region.end_seconds),
-                    "boundary": "between-beeps",
+                    "boundary": "opening-slate",
                 }
             )
 
@@ -111,7 +111,7 @@ def build_slate_transcription_windows(
                 {
                     "start_seconds": start_seconds,
                     "end_seconds": end_seconds,
-                    "boundary": "after-beep",
+                    "boundary": "note-slate-candidate",
                 }
             )
 
