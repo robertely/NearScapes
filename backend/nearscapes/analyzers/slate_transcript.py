@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-import httpx
 import numpy as np
+import httpx
 
 from nearscapes.analyzers.base import AnalyzerContext, Detection
 from nearscapes.audio.pcm import ensure_mono_pcm, load_pcm
