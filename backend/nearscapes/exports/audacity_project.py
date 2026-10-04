@@ -280,7 +280,7 @@ def build_audacity_project(
     output: Path,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    temporary_output = output.with_name(f".{output.stem}.tmp.aup3")
+    temporary_output = output.with_name(f"{output.stem}.tmp.aup3")
     temporary_output.unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="nearscapes-audacity-") as temp:
@@ -292,6 +292,13 @@ def build_audacity_project(
         try:
             pipe.bootstrap_module()
             pipe.start()
+            pipe.command(
+                'SetPreference: Name="Warnings/FirstProjectSave" Value="0" Reload=0'
+            )
+            pipe.command(
+                'SetPreference: Name="FileFormats/SaveProjectWithDependencies" '
+                'Value="copy" Reload=0'
+            )
 
             pipe.command("SelectTracks: Track=0 TrackCount=1 Mode=Set")
             pipe.command(
