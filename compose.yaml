@@ -79,7 +79,7 @@ services:
 
   worker:
     build: .
-    command: ["dramatiq", "nearscapes.jobs.tasks", "--processes", "1", "--threads", "2", "--queues", "analysis"]
+    command: ["dramatiq", "nearscapes.jobs.tasks", "--processes", "1", "--threads", "1", "--queues", "analysis"]
     environment: *app-env
     depends_on:
       migrate:
