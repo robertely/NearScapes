@@ -82,7 +82,13 @@ class AudacityPipe:
         log_path = self.home / "audacity.log"
         self.log_handle = log_path.open("ab")
         return subprocess.Popen(
-            ["xvfb-run", "-a", "dbus-run-session", "--", "audacity"],
+            [
+                "xvfb-run",
+                "-a",
+                "-s",
+                "-screen 0 1280x1024x24",
+                "audacity",
+            ],
             env=self.env,
             stdout=self.log_handle,
             stderr=subprocess.STDOUT,
