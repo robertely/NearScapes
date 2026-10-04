@@ -5,7 +5,6 @@ import threading
 from functools import lru_cache
 from pathlib import Path
 
-import httpx
 import numpy as np
 
 from nearscapes.analyzers.base import AnalyzerContext, Detection
@@ -15,10 +14,10 @@ from nearscapes.config import get_settings
 _CPU_WHISPER_LOCK = threading.Lock()
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=1)
 def _cpu_whisper_model(model: str, cache_root: str):
     try:
-        from faster_whisper import WhisperModel
+        import whisper
     except ImportError as exc:
         raise RuntimeError(
             "CPU slate transcription requires the NearScapes cpu-asr dependency"
@@ -26,10 +25,9 @@ def _cpu_whisper_model(model: str, cache_root: str):
 
     root = Path(cache_root)
     root.mkdir(parents=True, exist_ok=True)
-    return WhisperModel(
+    return whisper.load_model(
         model,
         device="cpu",
-        compute_type="int8",
         download_root=str(root),
     )
 
@@ -41,62 +39,24 @@ def _transcribe_cpu(
     language: str,
     cache_root: Path,
 ) -> dict:
-    whisper = _cpu_whisper_model(model, str(cache_root))
+    whisper_model = _cpu_whisper_model(model, str(cache_root))
     with _CPU_WHISPER_LOCK:
-        segments, info = whisper.transcribe(
+        result = whisper_model.transcribe(
             samples,
             language=language or None,
             task="transcribe",
-            beam_size=5,
+            fp16=False,
             condition_on_previous_text=False,
             word_timestamps=False,
-            vad_filter=False,
         )
-        text = " ".join(
-            segment.text.strip()
-            for segment in segments
-            if segment.text and segment.text.strip()
-        ).strip()
 
     return {
-        "text": text,
+        "text": str(result.get("text") or "").strip(),
         "model": model,
-        "language": getattr(info, "language", None) or language,
-        "backend": "faster-whisper",
+        "language": result.get("language") or language,
+        "backend": "openai-whisper",
         "accelerator": "cpu",
     }
-
-
-def _transcribe_metal(
-    samples: np.ndarray,
-    *,
-    sample_rate: int,
-    model: str,
-    language: str,
-    inference_url: str,
-    timeout_seconds: float,
-) -> dict:
-    response = httpx.post(
-        f"{inference_url.rstrip('/')}/v1/whisper/transcribe",
-        files={
-            "file": (
-                "segment.f32",
-                samples.tobytes(),
-                "application/octet-stream",
-            )
-        },
-        data={
-            "sample_rate": str(sample_rate),
-            "model": model,
-            "language": language,
-        },
-        timeout=timeout_seconds,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    payload.setdefault("backend", "mlx-whisper")
-    payload.setdefault("accelerator", "metal")
-    return payload
 
 
 _TIME_RE = re.compile(
@@ -168,7 +128,7 @@ def parse_opening_location(text: str) -> dict | None:
 
 class SlateTranscriptAnalyzer:
     id = "slate-transcript"
-    version = "0.4.0"
+    version = "0.5.0"
     display_name = "Slate Speech Transcript"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
@@ -177,12 +137,10 @@ class SlateTranscriptAnalyzer:
         if not windows:
             return []
 
-        accelerator = settings.accelerator.lower()
-
         sample_rate = int(
             parameters.get("sample_rate", settings.slate_transcription_sample_rate)
         )
-        model = str(parameters.get("model", settings.slate_transcription_model))
+        model = str(parameters.get("model", settings.slate_transcription_cpu_model))
         language = str(parameters.get("language", settings.slate_transcription_language))
 
         pcm_path = ensure_mono_pcm(context.source_path, context.cache_dir, sample_rate)
@@ -203,22 +161,12 @@ class SlateTranscriptAnalyzer:
             end_sample = int(round(end_seconds * sample_rate))
             segment = np.asarray(samples[start_sample:end_sample], dtype="<f4")
 
-            if accelerator in {"metal", "mps"}:
-                payload = _transcribe_metal(
-                    segment,
-                    sample_rate=sample_rate,
-                    model=model,
-                    language=language,
-                    inference_url=settings.inference_url,
-                    timeout_seconds=settings.inference_timeout_seconds,
-                )
-            else:
-                payload = _transcribe_cpu(
-                    segment,
-                    model=model,
-                    language=language,
-                    cache_root=settings.model_cache / "whisper",
-                )
+            payload = _transcribe_cpu(
+                segment,
+                model=model,
+                language=language,
+                cache_root=settings.model_cache / "whisper",
+            )
 
             text = str(payload.get("text") or "").strip()
             if not text:

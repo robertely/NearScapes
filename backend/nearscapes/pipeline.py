@@ -183,12 +183,7 @@ def build_slate_transcription_windows(
 
 def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
     settings = get_settings()
-    accelerator = settings.accelerator.lower()
-    transcription_model = (
-        settings.slate_transcription_model
-        if accelerator in {"metal", "mps"}
-        else settings.slate_transcription_cpu_model
-    )
+    transcription_model = settings.slate_transcription_cpu_model
 
     dispatch: tuple[str, str] | None = None
     with SessionLocal() as db:

@@ -27,7 +27,7 @@ wildlife = [
   "birdnet>=1.1,<2",
 ]
 cpu-asr = [
-  "faster-whisper>=1.2,<2",
+  "openai-whisper>=20240930",
 ]
 metal = [
   "birdnet[pt]>=1.1,<2",
