@@ -405,14 +405,25 @@ def build_audacity_project(
                 f"SaveProject2: Filename={working_output} "
                 "AddToHistory=0"
             )
+            save_response = ""
             try:
-                pipe.command(save_command)
+                save_response = pipe.command(save_command)
             except TimeoutError:
-                # Audacity 3.2 on headless Linux can finish SaveProject2 but
-                # fail to return the command response through mod-script-pipe.
-                # Accept that specific failure only when a real AUP3 was written.
+                # Headless Audacity can finish SaveProject2 but fail to return
+                # the command response through mod-script-pipe. Accept that
+                # specific failure only when a real AUP3 was written.
                 if not _is_audacity_project(working_output):
                     raise
+
+            if not working_output.exists():
+                contents = sorted(
+                    str(path.relative_to(temp_root))
+                    for path in temp_root.rglob("*")
+                )
+                raise RuntimeError(
+                    "Audacity SaveProject2 returned without creating the requested file. "
+                    f"Response={save_response!r}; temp contents={contents!r}"
+                )
         finally:
             pipe.close()
 
