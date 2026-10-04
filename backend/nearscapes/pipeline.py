@@ -25,8 +25,12 @@ def backfill_location_from_opening_slate(source_id: str) -> dict | None:
             return None
 
         metadata = dict(source.embedded_metadata or {})
-        if metadata.get("location"):
-            return dict(metadata["location"])
+        existing_location = metadata.get("location")
+        if (
+            isinstance(existing_location, dict)
+            and existing_location.get("source") == "opening-slate"
+        ):
+            return dict(existing_location)
 
         transcript_runs = db.scalars(
             select(AnalysisRun)
@@ -53,6 +57,8 @@ def backfill_location_from_opening_slate(source_id: str) -> dict | None:
                 location = parse_opening_location(event.text)
                 if not location:
                     continue
+                if existing_location and "embedded_location" not in metadata:
+                    metadata["embedded_location"] = dict(existing_location)
                 metadata["location"] = location
                 source.embedded_metadata = metadata
                 db.commit()
