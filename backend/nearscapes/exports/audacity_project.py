@@ -69,6 +69,14 @@ class AudacityPipe:
         env["NO_AT_BRIDGE"] = "1"
         return env
 
+    def _log_tail(self) -> str:
+        if self.log_handle:
+            self.log_handle.flush()
+        path = self.home / "audacity.log"
+        if not path.exists():
+            return ""
+        return path.read_text(errors="replace")[-4000:]
+
     def _launch(self) -> subprocess.Popen:
         log_path = self.home / "audacity.log"
         self.log_handle = log_path.open("ab")
@@ -119,10 +127,14 @@ class AudacityPipe:
             if self.to_pipe.exists() and self.from_pipe.exists():
                 break
             if self.process.poll() is not None:
-                raise RuntimeError("Audacity exited before creating scripting pipes")
+                raise RuntimeError(
+                    "Audacity exited before creating scripting pipes:\n" + self._log_tail()
+                )
             time.sleep(0.1)
         else:
-            raise TimeoutError("Timed out waiting for Audacity scripting pipes")
+            raise TimeoutError(
+                "Timed out waiting for Audacity scripting pipes:\n" + self._log_tail()
+            )
 
         self.to_fd = os.open(self.to_pipe, os.O_WRONLY)
         self.from_fd = os.open(self.from_pipe, os.O_RDONLY | os.O_NONBLOCK)
