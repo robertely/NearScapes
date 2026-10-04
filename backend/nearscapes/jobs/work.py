@@ -124,6 +124,7 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
             source_path=source_path,
             cache_dir=storage.cache_dir(source_sha),
             source_sha256=source_sha,
+            source_filename=source.filename,
         )
         detections = analyzer.analyze(context, parameters)
 
