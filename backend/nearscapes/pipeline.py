@@ -102,8 +102,12 @@ def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str |
             .where(Job.source_id == source_id, Job.kind == "audacity-export")
             .order_by(Job.created_at.desc())
         ).all()
-        if existing_jobs and existing_jobs[0].status in {"queued", "running", "complete"}:
-            return existing_jobs[0].id
+        if existing_jobs:
+            latest = existing_jobs[0]
+            if latest.status in {"queued", "running"}:
+                return latest.id
+            if latest.status == "complete" and not force:
+                return latest.id
 
         job = Job(kind="audacity-export", source_id=source_id, status="queued")
         db.add(job)
