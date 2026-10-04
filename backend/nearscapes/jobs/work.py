@@ -205,7 +205,11 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
             if transcript_run_id is None:
                 queue_birdnet_analysis(source_id, run_id)
         elif source_id and is_upload_pipeline and analyzer_id == "slate-transcript":
-            queue_birdnet_analysis(source_id, run_id)
+            with SessionLocal() as db:
+                source = db.get(SourceRecording, source_id)
+                location = (source.embedded_metadata or {}).get("location") if source else None
+            if location:
+                queue_birdnet_analysis(source_id, run_id)
         if source_id:
             maybe_queue_audacity_export(source_id)
     except Exception as exc:
