@@ -152,10 +152,19 @@ class AudacityPipe:
         self.to_fd = os.open(self.to_pipe, os.O_WRONLY)
         self.from_fd = os.open(self.from_pipe, os.O_RDONLY | os.O_NONBLOCK)
 
-        # The module creates its FIFOs slightly before Audacity's GUI event loop
-        # is ready to execute commands. The official bridge script also waits
-        # after pipe creation for this reason.
-        time.sleep(1.5)
+        # The scripting module can create its FIFOs before Audacity has an
+        # active project. A command sent in that window gets an empty response.
+        # Probe until the GUI command loop is actually ready.
+        deadline = time.monotonic() + settings.audacity_start_timeout_seconds
+        while time.monotonic() < deadline:
+            response = self.command("Help: Command=Help")
+            if response.strip():
+                return
+            time.sleep(0.25)
+        raise TimeoutError(
+            "Audacity scripting pipes opened, but the command loop never became ready:\n"
+            + self._log_tail()
+        )
 
     def command(self, command: str) -> str:
         if self.to_fd is None or self.from_fd is None:
@@ -176,7 +185,11 @@ class AudacityPipe:
                 # mod-script-pipe terminates each response with a blank line.
                 # Do not wait for a particular status string: commands such as
                 # Help/GetInfo do not all emit the same trailer.
-                if decoded.endswith("\n\n") or decoded.endswith("\r\n\r\n"):
+                if (
+                    decoded == "\n"
+                    or decoded.endswith("\n\n")
+                    or decoded.endswith("\r\n\r\n")
+                ):
                     if "BatchCommand finished: Failed!" in decoded:
                         raise RuntimeError(f"Audacity command failed: {command}\n{decoded}")
                     return decoded
