@@ -83,6 +83,20 @@ class AudacityPipe:
             return ""
         return path.read_text(errors="replace")[-4000:]
 
+    def _window_tree(self) -> str:
+        try:
+            result = subprocess.run(
+                ["xwininfo", "-root", "-tree"],
+                env=self.env,
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+            return result.stdout[-6000:]
+        except Exception as exc:
+            return f"xwininfo failed: {exc}"
+
     def _start_xvfb(self) -> None:
         socket_path = Path(f"/tmp/.X11-unix/X{self.display_number}")
         socket_path.unlink(missing_ok=True)
@@ -252,7 +266,9 @@ class AudacityPipe:
                 break
 
         raise TimeoutError(
-            f"Timed out waiting for Audacity command: {command}\n" + self._log_tail()
+            f"Timed out waiting for Audacity command: {command}\n"
+            f"Window tree:\n{self._window_tree()}\n"
+            + self._log_tail()
         )
 
     def close(self) -> None:
