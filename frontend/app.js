@@ -1,4 +1,4 @@
-const state = { source: null, waveform: null, runs: [], eventsByRun: new Map() };
+const state = { source: null, waveform: null, runs: [], eventsByRun: new Map(), autoDownloadAudacity: false };
 const $ = (id) => document.getElementById(id);
 
 function setStatus(text, isError = false) {
@@ -24,6 +24,7 @@ async function api(path, options = {}) {
 
 async function upload(file) {
   setStatus("Uploading…");
+  state.autoDownloadAudacity = true;
   const form = new FormData();
   form.append("file", file);
   const result = await api("/api/sources", { method: "POST", body: form });
@@ -94,6 +95,15 @@ async function waitForPipeline() {
       state.source = await api(`/api/sources/${state.source.id}`);
       showSource();
       setStatus("Analysis complete · Audacity project ready");
+      if (state.autoDownloadAudacity) {
+        state.autoDownloadAudacity = false;
+        const link = document.createElement("a");
+        link.href = `/api/sources/${state.source.id}/audacity-project`;
+        link.download = "";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
       return;
     }
     if (status.job?.status === "failed") {
