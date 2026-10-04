@@ -331,7 +331,13 @@ def _audacity_input_path(source: SourceRecording, temp_root: Path) -> Path:
 
 def _publish_audacity_project(working_output: Path, output: Path) -> None:
     if not _is_audacity_project(working_output):
-        raise RuntimeError("Audacity did not create a usable AUP3 SQLite project")
+        exists = working_output.exists()
+        size = working_output.stat().st_size if exists else None
+        header = working_output.read_bytes()[:32] if exists else b""
+        raise RuntimeError(
+            "Audacity did not create a usable AUP3 SQLite project: "
+            f"exists={exists} size={size} header={header!r}"
+        )
 
     fd, staged_name = tempfile.mkstemp(
         prefix=f".{output.stem}.",
