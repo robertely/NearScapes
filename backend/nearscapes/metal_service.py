@@ -11,7 +11,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 app = FastAPI(title="NearScapes Metal Inference", version="0.1.0")
 
 _MODEL_LOCK = threading.Lock()
+_WHISPER_LOCK = threading.Lock()
 _SAMPLE_RATE = 32_000
+_WHISPER_SAMPLE_RATE = 16_000
 _SEGMENT_SECONDS = 3.0
 _SEGMENT_SAMPLES = int(_SAMPLE_RATE * _SEGMENT_SECONDS)
 
@@ -219,6 +221,57 @@ def birdnet_predict(
             top_k=top_k,
             locale=locale,
         )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+
+@app.post("/v1/whisper/transcribe")
+def whisper_transcribe(
+    file: Annotated[UploadFile, File(...)],
+    sample_rate: Annotated[int, Form()] = _WHISPER_SAMPLE_RATE,
+    model: Annotated[str, Form()] = "mlx-community/whisper-large-v3-turbo",
+    language: Annotated[str, Form()] = "en",
+) -> dict:
+    if sample_rate != _WHISPER_SAMPLE_RATE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Whisper Metal service expects {_WHISPER_SAMPLE_RATE} Hz float32 mono PCM",
+        )
+
+    try:
+        import mlx_whisper
+
+        raw = file.file.read()
+        if len(raw) % 4:
+            raise ValueError("PCM payload length is not aligned to float32 samples")
+        samples = np.frombuffer(raw, dtype="<f4").astype(np.float32, copy=True)
+        if samples.size == 0:
+            return {
+                "text": "",
+                "model": model,
+                "language": language,
+                "sample_rate": sample_rate,
+            }
+
+        with _WHISPER_LOCK:
+            result = mlx_whisper.transcribe(
+                samples,
+                path_or_hf_repo=model,
+                language=language or None,
+                verbose=None,
+                condition_on_previous_text=False,
+                word_timestamps=False,
+            )
+
+        return {
+            "text": str(result.get("text") or "").strip(),
+            "model": model,
+            "language": result.get("language") or language,
+            "sample_rate": sample_rate,
+        }
     except HTTPException:
         raise
     except Exception as exc:
