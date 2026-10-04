@@ -49,7 +49,7 @@ def autorun_specs() -> list[dict]:
             "analyzer": analyzer_id,
             "parameters": _default_parameters(analyzer_id),
         }
-        for analyzer_id, parameters in _AUTORUN_PARAMETERS.items()
+        for analyzer_id in _AUTORUN_PARAMETERS
     ]
 
 
