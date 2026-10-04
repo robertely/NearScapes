@@ -103,19 +103,10 @@ def _geo_support(
 
 class BirdNetAnalyzer:
     id = "birdnet"
-    version = "0.3.0"
+    version = "0.4.0"
     display_name = "BirdNET+ V3 wildlife"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
-        settings = get_settings()
-        accelerator = settings.accelerator.lower()
-        if accelerator in {"metal", "mps"}:
-            return self._analyze_metal(context, parameters)
-        if accelerator != "cpu":
-            raise RuntimeError(
-                f"Unsupported BirdNET accelerator '{settings.accelerator}'. "
-                "Use cpu or metal."
-            )
         return self._analyze_cpu(context, parameters)
 
     def _analyze_metal(
