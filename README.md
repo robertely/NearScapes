@@ -9,10 +9,12 @@ See [PLAN.md](PLAN.md) for the larger design: independent ASR and bioacoustic pa
 Requirements: Docker with Compose.
 
 ```bash
-docker compose up --build
+just run
 ```
 
 Then open <http://localhost:8000>.
+
+`just run` is the supported local entrypoint. As native Apple-Silicon inference is added, that command will continue to hide the split between the Dockerized app and the macOS Metal inference helper.
 
 The first startup creates Postgres/Redis, runs the initial database migration, and starts separate web and background-worker processes. Uploaded audio is kept in the `data` Docker volume; the source file is never modified.
 
