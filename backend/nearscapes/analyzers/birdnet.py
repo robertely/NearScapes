@@ -76,7 +76,9 @@ class BirdNetAnalyzer:
         parameters: dict,
     ) -> list[Detection]:
         settings = get_settings()
-        threshold = float(parameters.get("confidence", 0.25))
+        threshold = float(
+            parameters.get("confidence", settings.birdnet_confidence_default)
+        )
         locale = str(parameters.get("locale", "en_us"))
         batch_size = int(parameters.get("batch_size", 16))
         top_k = int(parameters.get("top_k", 5))
@@ -169,7 +171,9 @@ class BirdNetAnalyzer:
                 "BirdNET is not installed. Install NearScapes with the wildlife extra."
             ) from exc
 
-        threshold = float(parameters.get("confidence", 0.25))
+        threshold = float(
+            parameters.get("confidence", settings.birdnet_confidence_default)
+        )
         backend = str(parameters.get("backend", "onnx"))
         precision = str(parameters.get("precision", "fp16"))
         n_workers = int(parameters.get("n_workers", 1))
