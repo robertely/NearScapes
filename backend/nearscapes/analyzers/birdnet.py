@@ -198,6 +198,7 @@ class BirdNetAnalyzer:
         for item in payload.get("events", []):
             attributes = dict(item.get("attributes") or {})
             attributes["remote_inference"] = settings.inference_url
+            attributes["location_source"] = parameters.get("location_source")
             detections.append(
                 Detection(
                     start_seconds=float(item["start_seconds"]),
