@@ -28,14 +28,19 @@ def parse_announced_time(text: str) -> str | None:
 
 
 _COORDINATE = r"(?:negative\s+|minus\s+|-)?\d{1,3}(?:\.\d+)"
+_COORDINATE_SUFFIX = r"(?:\s*degrees?)?"
 _LABELLED_LOCATION_RE = re.compile(
-    rf"""\blat(?:itude)?\s*(?:is\s*)?(?P<lat>{_COORDINATE})\s*[,;]?\s*"""
-    rf"""(?:and\s+)?(?:lon(?:gitude)?|long)\s*(?:is\s*)?(?P<lon>{_COORDINATE})""",
+    rf"""\blat(?:itude)?\s*(?:(?:is|of|equals?)\s*)?"""
+    rf"""(?P<lat>{_COORDINATE}){_COORDINATE_SUFFIX}\s*[,;/]?\s*"""
+    rf"""(?:and\s+)?(?:lon(?:gitude)?|long)\s*"""
+    rf"""(?:(?:is|of|equals?)\s*)?(?P<lon>{_COORDINATE}){_COORDINATE_SUFFIX}""",
     re.IGNORECASE,
 )
 _RECORDING_AT_LOCATION_RE = re.compile(
-    rf"""\brecording\s+at\s+(?P<lat>{_COORDINATE})\s*(?:,|and)\s*"""
-    rf"""(?P<lon>{_COORDINATE})""",
+    rf"""\brecording\s+at\s+(?:coordinates?\s+)?"""
+    rf"""(?P<lat>{_COORDINATE}){_COORDINATE_SUFFIX}\s*"""
+    rf"""(?:,|;|/|\band\b|\bby\b)?\s*"""
+    rf"""(?P<lon>{_COORDINATE}){_COORDINATE_SUFFIX}""",
     re.IGNORECASE,
 )
 
@@ -49,7 +54,13 @@ def _coordinate_value(value: str) -> float:
 
 
 def parse_opening_location(text: str) -> dict | None:
-    normalized = re.sub(r"(?<=\d)\s+(?:point|dot)\s+(?=\d)", ".", text, flags=re.IGNORECASE)
+    normalized = text.replace("−", "-").replace("–", "-")
+    normalized = re.sub(
+        r"(?<=\d)\s+(?:point|dot)\s+(?=\d)",
+        ".",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     for pattern in (_LABELLED_LOCATION_RE, _RECORDING_AT_LOCATION_RE):
         match = pattern.search(normalized)
         if not match:
@@ -67,7 +78,7 @@ def parse_opening_location(text: str) -> dict | None:
 
 class SlateTranscriptAnalyzer:
     id = "slate-transcript"
-    version = "0.3.0"
+    version = "0.3.1"
     display_name = "Slate Speech Transcript"
 
     def analyze(self, context: AnalyzerContext, parameters: dict) -> list[Detection]:
