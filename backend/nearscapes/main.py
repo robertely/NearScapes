@@ -117,7 +117,7 @@ async def upload_source(file: UploadedFile, db: DbSession) -> dict:
                 maybe_queue_audacity_export(existing.id)
             return {"source": source_payload(existing), "job": None, "deduplicated": True}
 
-        destination = storage.source_path(sha256)
+        destination = storage.source_path(sha256, filename)
         temporary.replace(destination)
         source = SourceRecording(
             sha256=sha256,
