@@ -55,6 +55,9 @@ class AudacityPipe:
         self.home = home
         self.initial_audio = initial_audio
         self.uid = os.getuid()
+        self.display_number = 90 + (os.getpid() % 100)
+        self.display = f":{self.display_number}"
+        self.xvfb_process: subprocess.Popen | None = None
         self.to_pipe = Path(f"/tmp/audacity_script_pipe.to.{self.uid}")
         self.from_pipe = Path(f"/tmp/audacity_script_pipe.from.{self.uid}")
         self.process: subprocess.Popen | None = None
@@ -69,6 +72,7 @@ class AudacityPipe:
         env["XDG_CONFIG_HOME"] = str(self.home / ".config")
         env["NO_AT_BRIDGE"] = "1"
         env["GDK_BACKEND"] = "x11"
+        env["DISPLAY"] = self.display
         return env
 
     def _log_tail(self) -> str:
@@ -79,16 +83,38 @@ class AudacityPipe:
             return ""
         return path.read_text(errors="replace")[-4000:]
 
+    def _start_xvfb(self) -> None:
+        socket_path = Path(f"/tmp/.X11-unix/X{self.display_number}")
+        socket_path.unlink(missing_ok=True)
+        self.xvfb_process = subprocess.Popen(
+            [
+                "Xvfb",
+                self.display,
+                "-screen",
+                "0",
+                "1280x1024x24",
+                "-nolisten",
+                "tcp",
+                "-ac",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + settings.audacity_start_timeout_seconds
+        while time.monotonic() < deadline:
+            if socket_path.exists():
+                return
+            if self.xvfb_process.poll() is not None:
+                raise RuntimeError("Xvfb exited before creating its display socket")
+            time.sleep(0.05)
+        raise TimeoutError("Timed out waiting for the Audacity Xvfb display")
+
     def _launch(self) -> subprocess.Popen:
+        self._start_xvfb()
         log_path = self.home / "audacity.log"
         self.log_handle = log_path.open("ab")
-        command = [
-            "xvfb-run",
-            "-a",
-            "-s",
-            "-screen 0 1280x1024x24",
-            "audacity",
-        ]
+        command = ["audacity"]
         if self.initial_audio is not None:
             command.append(str(self.initial_audio))
         return subprocess.Popen(
@@ -239,6 +265,9 @@ class AudacityPipe:
         if self.process:
             _stop_process(self.process)
             self.process = None
+        if self.xvfb_process:
+            _stop_process(self.xvfb_process)
+            self.xvfb_process = None
         if self.log_handle:
             self.log_handle.close()
             self.log_handle = None
