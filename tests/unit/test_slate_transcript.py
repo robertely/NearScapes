@@ -149,3 +149,15 @@ def test_parses_opening_slate_labelled_coordinates_with_of():
         "longitude": -105.1234,
         "source": "opening-slate",
     }
+
+def test_parses_whisper_split_decimal_in_labelled_coordinates():
+    assert parse_opening_location(
+        "This is Robert Ely recording at latitude 39.7 989, "
+        "longitude minus 105.0894 at altitude 5227.91913074271. "
+        "The current time is 9.10am on October 4th, 2026."
+    ) == {
+        "latitude": 39.7989,
+        "longitude": -105.0894,
+        "source": "opening-slate",
+    }
+
