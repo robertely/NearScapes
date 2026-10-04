@@ -176,7 +176,7 @@ def build_slate_transcription_windows(
 
 def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
     settings = get_settings()
-    if settings.accelerator != "metal":
+    if settings.accelerator.lower() not in {"metal", "mps"}:
         return None
 
     dispatch: tuple[str, str] | None = None
@@ -192,6 +192,7 @@ def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
         ):
             return None
 
+        analyzer = get_analyzer(_SLATE_TRANSCRIPT_ANALYZER)
         existing = db.scalars(
             select(AnalysisRun)
             .where(
@@ -200,7 +201,11 @@ def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
             )
             .order_by(AnalysisRun.created_at.desc())
         ).first()
-        if existing:
+        if (
+            existing
+            and existing.analyzer_version == analyzer.version
+            and existing.status in {"queued", "running", "complete"}
+        ):
             return existing.id
 
         events = db.scalars(
@@ -214,7 +219,6 @@ def queue_slate_transcription(source_id: str, slate_run_id: str) -> str | None:
             post_seconds=settings.slate_transcription_post_seconds,
         )
 
-        analyzer = get_analyzer(_SLATE_TRANSCRIPT_ANALYZER)
         run = AnalysisRun(
             source_id=source_id,
             analyzer=analyzer.id,
@@ -259,6 +263,7 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
         ):
             return None
 
+        analyzer = get_analyzer(_BIRDNET_ANALYZER)
         existing = db.scalars(
             select(AnalysisRun)
             .where(
@@ -267,7 +272,12 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
             )
             .order_by(AnalysisRun.created_at.desc())
         ).first()
-        if existing and (existing.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE:
+        if (
+            existing
+            and (existing.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
+            and existing.analyzer_version == analyzer.version
+            and existing.status in {"queued", "running", "complete"}
+        ):
             return existing.id
 
         parameters = default_parameters(_BIRDNET_ANALYZER)
@@ -277,7 +287,6 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
         parameters[_PIPELINE_MARKER] = _UPLOAD_PIPELINE
         parameters["source_upstream_run_id"] = upstream_run_id
 
-        analyzer = get_analyzer(_BIRDNET_ANALYZER)
         run = AnalysisRun(
             source_id=source_id,
             analyzer=analyzer.id,
@@ -297,6 +306,58 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
         dispatch_analysis(*dispatch)
         return dispatch[1]
     return None
+
+
+def resume_upload_pipeline(source_id: str) -> str | None:
+    """Resume missing/stale derived stages for an existing recording."""
+    settings = get_settings()
+    backfill_location_from_opening_slate(source_id)
+
+    with SessionLocal() as db:
+        runs = db.scalars(
+            select(AnalysisRun)
+            .where(AnalysisRun.source_id == source_id)
+            .order_by(AnalysisRun.created_at.desc())
+        ).all()
+
+        slate_run = next(
+            (
+                run
+                for run in runs
+                if run.analyzer == "slate-tone"
+                and (run.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
+                and run.status == "complete"
+            ),
+            None,
+        )
+        if not slate_run:
+            return None
+
+        transcript_run = next(
+            (
+                run
+                for run in runs
+                if run.analyzer == _SLATE_TRANSCRIPT_ANALYZER
+                and (run.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
+            ),
+            None,
+        )
+
+    if settings.accelerator.lower() in {"metal", "mps"}:
+        transcript_analyzer = get_analyzer(_SLATE_TRANSCRIPT_ANALYZER)
+        if (
+            transcript_run is None
+            or transcript_run.analyzer_version != transcript_analyzer.version
+            or transcript_run.status == "failed"
+        ):
+            return queue_slate_transcription(source_id, slate_run.id)
+        if transcript_run.status in {"queued", "running"}:
+            return transcript_run.id
+        if transcript_run.status == "complete":
+            backfill_location_from_opening_slate(source_id)
+            return queue_birdnet_analysis(source_id, transcript_run.id)
+
+    return queue_birdnet_analysis(source_id, slate_run.id)
 
 
 def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str | None:
@@ -327,7 +388,7 @@ def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str |
         latest_by_analyzer = {run.analyzer: run for run in auto_runs}
         expected = {"slate-tone", _BIRDNET_ANALYZER}
         slate_run = latest_by_analyzer.get("slate-tone")
-        if settings.accelerator == "metal" and (
+        if settings.accelerator.lower() in {"metal", "mps"} and (
             _SLATE_TRANSCRIPT_ANALYZER in latest_by_analyzer
             or (slate_run and slate_run.status == "complete")
         ):
