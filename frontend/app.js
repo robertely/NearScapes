@@ -77,8 +77,7 @@ function showSource() {
   const audacity = $("audacity-project");
   audacity.href = `/api/sources/${state.source.id}/audacity-project`;
   audacity.classList.toggle("hidden", !state.source.audacity_project_ready);
-  const location = state.source.location;
-  $("location").textContent = location ? `Location: ${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)} (${location.source})` : "Location: not present in embedded file metadata";
+  renderSummary();
   $("run-slate").disabled = state.source.status !== "ready";
   $("run-birdnet").disabled = state.source.status !== "ready";
 }
@@ -99,6 +98,7 @@ async function refreshAll(showReady = true) {
     drawTimeline();
     renderRuns();
     renderEvents();
+    renderSummary();
     if (showReady) setStatus("Ready");
   }
 }
@@ -196,6 +196,102 @@ function drawLanes() {
 }
 
 function drawTimeline() { drawWaveform(); drawLanes(); }
+
+function latestCompletedRun(analyzer) {
+  return [...state.runs]
+    .reverse()
+    .find((run) => run.analyzer === analyzer && run.status === "complete");
+}
+
+function renderSummary() {
+  if (!state.source) return;
+
+  const location = state.source.location;
+  $("summary-location").textContent = location
+    ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`
+    : "Not found in recording metadata";
+
+  const birds = $("summary-birds");
+  birds.innerHTML = "";
+  const birdRun = latestCompletedRun("birdnet");
+  const birdEvents = birdRun ? state.eventsByRun.get(birdRun.id) || [] : [];
+  const species = new Map();
+
+  for (const event of birdEvents) {
+    if (event.category !== "wildlife") continue;
+    const existing = species.get(event.label) || {
+      label: event.label,
+      scientificName: event.attributes?.scientific_name || null,
+      maxConfidence: 0,
+      count: 0,
+    };
+    existing.count += 1;
+    existing.maxConfidence = Math.max(
+      existing.maxConfidence,
+      event.confidence == null ? 0 : event.confidence,
+    );
+    species.set(event.label, existing);
+  }
+
+  const topBirds = [...species.values()]
+    .sort((a, b) => b.maxConfidence - a.maxConfidence || b.count - a.count)
+    .slice(0, 5);
+
+  if (!topBirds.length) {
+    birds.textContent = "No wildlife detections yet.";
+  } else {
+    for (const bird of topBirds) {
+      const row = document.createElement("div");
+      row.className = "summary-item";
+      const name = document.createElement("strong");
+      name.textContent = bird.label;
+      const detail = document.createElement("small");
+      const scientific = bird.scientificName ? ` · ${bird.scientificName}` : "";
+      const count = bird.count === 1 ? "1 detection" : `${bird.count} detections`;
+      detail.textContent =
+        `${Math.round(bird.maxConfidence * 100)}% max · ${count}${scientific}`;
+      row.append(name, detail);
+      birds.appendChild(row);
+    }
+  }
+
+  const notes = $("summary-notes");
+  notes.innerHTML = "";
+  const transcriptRun = latestCompletedRun("slate-transcript");
+  const transcriptEvents = transcriptRun
+    ? state.eventsByRun.get(transcriptRun.id) || []
+    : [];
+  const slateNotes = transcriptEvents
+    .filter((event) =>
+      event.category === "slate-note" || event.category === "slate-transcript"
+    )
+    .sort((a, b) => a.start_seconds - b.start_seconds);
+
+  if (!slateNotes.length) {
+    notes.textContent = "No slate notes found.";
+  } else {
+    for (const event of slateNotes) {
+      const row = document.createElement("button");
+      row.className = "summary-item summary-note";
+      const heading = document.createElement("strong");
+      heading.textContent =
+        event.category === "slate-note"
+          ? event.attributes?.announced_time || event.label
+          : "Opening slate";
+      const text = document.createElement("span");
+      text.textContent = event.text || event.label;
+      const offset = document.createElement("small");
+      offset.textContent = `Recording ${formatTime(event.start_seconds)}`;
+      row.append(heading, text, offset);
+      row.addEventListener("click", () => {
+        $("audio").currentTime = event.start_seconds;
+        $("audio").play();
+      });
+      notes.appendChild(row);
+    }
+  }
+}
+
 
 function renderRuns() {
   const runs = $("runs");
