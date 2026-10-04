@@ -2,9 +2,11 @@ from copy import deepcopy
 
 from nearscapes.analyzers.birdnet import BirdNetAnalyzer
 from nearscapes.analyzers.slate import SlateToneAnalyzer
+from nearscapes.analyzers.slate_transcript import SlateTranscriptAnalyzer
 
 _ANALYZERS = {
     SlateToneAnalyzer.id: SlateToneAnalyzer(),
+    SlateTranscriptAnalyzer.id: SlateTranscriptAnalyzer(),
     BirdNetAnalyzer.id: BirdNetAnalyzer(),
 }
 
@@ -25,7 +27,7 @@ def list_analyzers() -> list[dict]:
             "id": item.id,
             "version": item.version,
             "display_name": item.display_name,
-            "auto_run": True,
+            "auto_run": item.id in _AUTORUN_PARAMETERS,
             "default_parameters": deepcopy(_AUTORUN_PARAMETERS.get(item.id, {})),
         }
         for item in _ANALYZERS.values()
@@ -33,13 +35,13 @@ def list_analyzers() -> list[dict]:
 
 
 def autorun_specs() -> list[dict]:
-    """All registered analyzers run automatically after upload by default."""
+    """Return analyzers that run directly after upload."""
     return [
         {
-            "analyzer": item.id,
-            "parameters": deepcopy(_AUTORUN_PARAMETERS.get(item.id, {})),
+            "analyzer": analyzer_id,
+            "parameters": deepcopy(parameters),
         }
-        for item in _ANALYZERS.values()
+        for analyzer_id, parameters in _AUTORUN_PARAMETERS.items()
     ]
 
 
