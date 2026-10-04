@@ -8,6 +8,10 @@ A user uploads a recording, runs one or more independent analyzers, reviews dete
 
 The original uploaded audio is read-only. NearScapes does not rewrite or transcode the source file as an output in the first version.
 
+## Developer entrypoint
+
+`just run` is the stable local-development entrypoint. Architecture changes must not require the developer to manually start additional services. On Apple Silicon, once the native Metal inference helper is implemented, `just run` must start or verify that helper and then start the Docker stack. The command should remain the only thing needed for a normal local launch.
+
 ## Core user flow
 
 1. Upload an audio file.
