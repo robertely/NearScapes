@@ -14,11 +14,15 @@ _TERMINAL_RUN_STATES = {"complete", "failed"}
 _SLATE_TRANSCRIPT_ANALYZER = "slate-transcript"
 
 
-def queue_upload_analysis(source_id: str) -> list[str]:
-    """Create and dispatch one run for every registered analyzer."""
+def queue_upload_analysis(
+    source_id: str,
+    analyzer_parameter_overrides: dict[str, dict] | None = None,
+) -> list[str]:
+    """Create and dispatch one run for every automatic analyzer."""
     if not get_settings().auto_analyze_uploads:
         return []
 
+    overrides = analyzer_parameter_overrides or {}
     dispatches: list[tuple[str, str]] = []
     with SessionLocal() as db:
         source = db.get(SourceRecording, source_id)
@@ -40,6 +44,7 @@ def queue_upload_analysis(source_id: str) -> list[str]:
                 continue
             analyzer = get_analyzer(analyzer_id)
             parameters = dict(spec["parameters"])
+            parameters.update(overrides.get(analyzer_id, {}))
             parameters[_PIPELINE_MARKER] = _UPLOAD_PIPELINE
             run = AnalysisRun(
                 source_id=source_id,
