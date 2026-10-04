@@ -1,11 +1,15 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg curl \
+    && apt-get install -y --no-install-recommends \
+       ffmpeg \
+       curl \
+       libvulkan1 \
+       vulkan-tools \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir uv==0.10.0
 
@@ -16,5 +20,15 @@ COPY frontend ./frontend
 COPY migrations ./migrations
 RUN uv sync --no-dev --extra wildlife
 
+FROM base AS audacity
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       audacity=3.2.4+dfsg-1 \
+       dbus-x11 \
+       xvfb \
+    && rm -rf /var/lib/apt/lists/*
+CMD ["dramatiq", "nearscapes.jobs.audacity_tasks", "--processes", "1", "--threads", "1", "--queues", "audacity"]
+
+FROM base AS app
 EXPOSE 8000
 CMD ["uvicorn", "nearscapes.main:app", "--host", "0.0.0.0", "--port", "8000"]
