@@ -71,3 +71,10 @@ jobs:
               for event in events
           ), "Reference recording did not produce an expected bird-family detection"
           PY
+      - name: Export BirdNET model cache for local validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: birdnet-v3-cpu-cache
+          path: .birdnet
+          retention-days: 1
+          compression-level: 0
