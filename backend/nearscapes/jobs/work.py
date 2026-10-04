@@ -36,7 +36,11 @@ def _fail_job(job_id: str, message: str) -> None:
 
 def metadata_with_detected_location(metadata: dict, detections: list) -> dict:
     updated = dict(metadata or {})
-    if updated.get("location"):
+    existing_location = updated.get("location")
+    if (
+        isinstance(existing_location, dict)
+        and existing_location.get("source") == "opening-slate"
+    ):
         return updated
 
     for detection in detections:
@@ -47,6 +51,8 @@ def metadata_with_detected_location(metadata: dict, detections: list) -> dict:
             if text:
                 location = parse_opening_location(text)
         if location:
+            if existing_location and "embedded_location" not in updated:
+                updated["embedded_location"] = dict(existing_location)
             updated["location"] = dict(location)
             break
     return updated
@@ -91,7 +97,8 @@ def ingest_source_impl(
             source.codec = metadata["codec"]
             source.embedded_metadata = {
                 "tags": metadata.get("tags") or {},
-                "location": metadata.get("location"),
+                "embedded_location": metadata.get("location"),
+                "location": None,
             }
             source.waveform_path = str(waveform_path)
             source.status = "ready"
