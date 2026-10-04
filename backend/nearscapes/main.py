@@ -19,7 +19,7 @@ from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
 from nearscapes.db.session import get_db
 from nearscapes.jobs.dispatch import dispatch_analysis, dispatch_ingest
 from nearscapes.logging import configure_logging
-from nearscapes.pipeline import maybe_queue_audacity_export
+from nearscapes.pipeline import maybe_queue_audacity_export, queue_upload_analysis
 from nearscapes.storage.local import LocalStorage
 
 settings = get_settings()
@@ -112,6 +112,9 @@ async def upload_source(file: UploadedFile, db: DbSession) -> dict:
         sha256 = hasher.hexdigest()
         existing = db.scalar(select(SourceRecording).where(SourceRecording.sha256 == sha256))
         if existing:
+            if existing.status == "ready":
+                queue_upload_analysis(existing.id)
+                maybe_queue_audacity_export(existing.id)
             return {"source": source_payload(existing), "job": None, "deduplicated": True}
 
         destination = storage.source_path(sha256)
