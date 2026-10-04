@@ -1,4 +1,4 @@
-const DEFAULT_WILDLIFE_CONFIDENCE = 0.60;
+const DEFAULT_WILDLIFE_CONFIDENCE = 0.85;
 const savedWildlifeConfidence = Number(localStorage.getItem("nearscapes.wildlifeConfidence"));
 const initialWildlifeConfidence =
   Number.isFinite(savedWildlifeConfidence) &&
