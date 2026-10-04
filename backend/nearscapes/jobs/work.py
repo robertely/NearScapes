@@ -34,17 +34,27 @@ def _fail_job(job_id: str, message: str) -> None:
             db.commit()
 
 
-def metadata_with_detected_location(metadata: dict, detections: list) -> dict:
+def metadata_with_slate_detections(metadata: dict, detections: list) -> dict:
     updated = dict(metadata or {})
     existing_location = updated.get("location")
-    if (
+    location_locked = (
         isinstance(existing_location, dict)
         and existing_location.get("source") == "opening-slate"
-    ):
-        return updated
+    )
+    recording_metadata = dict(updated.get("recording_metadata") or {})
 
     for detection in detections:
         attributes = detection.attributes or {}
+
+        detected_metadata = attributes.get("recording_metadata")
+        if isinstance(detected_metadata, dict):
+            for key, value in detected_metadata.items():
+                if value is not None and str(value).strip():
+                    recording_metadata[key] = value
+
+        if location_locked:
+            continue
+
         location = attributes.get("location")
         if not location and getattr(detection, "category", None) == "slate-transcript":
             text = getattr(detection, "text", None)
@@ -54,8 +64,17 @@ def metadata_with_detected_location(metadata: dict, detections: list) -> dict:
             if existing_location and "embedded_location" not in updated:
                 updated["embedded_location"] = dict(existing_location)
             updated["location"] = dict(location)
-            break
+            existing_location = updated["location"]
+            location_locked = True
+
+    if recording_metadata:
+        updated["recording_metadata"] = recording_metadata
     return updated
+
+
+def metadata_with_detected_location(metadata: dict, detections: list) -> dict:
+    """Compatibility wrapper for callers that only care about location."""
+    return metadata_with_slate_detections(metadata, detections)
 
 
 def ingest_source_impl(
@@ -174,7 +193,7 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
                 return
             source = db.get(SourceRecording, run.source_id)
             if analyzer_id == "slate-transcript" and source:
-                source.embedded_metadata = metadata_with_detected_location(
+                source.embedded_metadata = metadata_with_slate_detections(
                     source.embedded_metadata or {},
                     detections,
                 )
