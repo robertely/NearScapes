@@ -16,7 +16,7 @@ Then open <http://localhost:8000>.
 
 `just run` is the supported local entrypoint. On Apple Silicon it starts and verifies a native PyTorch/MPS helper, then starts the Dockerized app with BirdNET routed to that helper. The app refuses to silently fall back to CPU for a Metal-configured BirdNET run.
 
-The first startup creates Postgres/Redis, runs the initial database migration, and starts separate web and background-worker processes. Uploaded audio is kept in the `data` Docker volume; the source file is never modified.
+The first startup creates Postgres/Redis, runs the initial database migration, and starts separate web and background-worker processes. Uploaded audio is kept in the `data` Docker volume; the source file is never modified. On non-Apple systems, opening-slate speech is transcribed inside the worker with faster-whisper on CPU; the model is cached in the `models` volume.
 
 ## Current flow
 
