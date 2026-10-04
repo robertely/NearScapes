@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import os
 from pathlib import Path
 
 from nearscapes.analyzers.base import AnalyzerContext, Detection
@@ -20,6 +21,25 @@ def _seconds(value) -> float:
         hours, minutes, seconds = parts
         return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
     return float(text)
+
+
+def _birdnet_input_path(context: AnalyzerContext) -> Path:
+    source = Path(context.source_path)
+    if source.suffix:
+        return source
+
+    suffix = Path(context.source_filename or "").suffix.lower()
+    if not suffix:
+        return source
+
+    alias = context.cache_dir / f"birdnet-input{suffix}"
+    if alias.exists() or alias.is_symlink():
+        alias.unlink()
+    try:
+        os.link(source, alias)
+    except OSError:
+        alias.symlink_to(source)
+    return alias
 
 
 def _split_species_name(value: str) -> tuple[str | None, str]:
@@ -56,8 +76,9 @@ class BirdNetAnalyzer:
             load_kwargs["precision"] = precision
 
         model = birdnet.load("acoustic", "3.0", backend, **load_kwargs)
+        input_path = _birdnet_input_path(context)
         predictions = model.predict(
-            Path(context.source_path),
+            input_path,
             device="CPU",
             n_workers=n_workers,
         )
@@ -83,6 +104,7 @@ class BirdNetAnalyzer:
                         "model": "BirdNET+ V3.0",
                         "backend": backend,
                         "device": "CPU",
+                        "input_path": str(input_path),
                     },
                 )
             )
