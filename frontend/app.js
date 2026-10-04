@@ -148,6 +148,8 @@ function showSource() {
   if (state.source.sample_rate) bits.push(`${state.source.sample_rate.toLocaleString()} Hz`);
   if (state.source.channels) bits.push(`${state.source.channels} ch`);
   if (state.source.codec) bits.push(state.source.codec);
+  const microphone = state.source.recording_metadata?.microphone;
+  if (microphone) bits.push(`Microphone: ${microphone}`);
   $("metadata").textContent = bits.join(" · ") || state.source.status;
   const audio = $("audio");
   if (audio.dataset.sourceId !== state.source.id) {
@@ -405,7 +407,9 @@ function renderSummary() {
     : [];
   const slateNotes = transcriptEvents
     .filter((event) =>
-      event.category === "slate-note" || event.category === "slate-transcript"
+      event.category === "slate-note" ||
+      event.category === "slate-transcript" ||
+      event.category === "recording-metadata-transcript"
     )
     .sort((a, b) => a.start_seconds - b.start_seconds);
 
@@ -419,7 +423,9 @@ function renderSummary() {
       heading.textContent =
         event.category === "slate-note"
           ? event.attributes?.announced_time || event.label
-          : "Opening slate";
+          : event.category === "recording-metadata-transcript"
+            ? "Recording metadata"
+            : "Opening slate";
       const text = document.createElement("span");
       text.textContent = event.text || event.label;
       const offset = document.createElement("small");
