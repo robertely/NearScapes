@@ -16,6 +16,7 @@ const state = {
   pendingFile: null,
   uploadInProgress: false,
   analysisComplete: false,
+  pipelineStages: [],
 };
 const $ = (id) => document.getElementById(id);
 
@@ -28,6 +29,27 @@ function formatTime(seconds) {
   const minutes = Math.floor(seconds / 60);
   const secs = seconds - minutes * 60;
   return `${minutes}:${secs.toFixed(2).padStart(5, "0")}`;
+}
+
+function renderPipelineStages(stages = state.pipelineStages) {
+  const root = $("pipeline-stages");
+  root.innerHTML = "";
+  if (!stages.length) {
+    root.classList.add("hidden");
+    return;
+  }
+
+  root.classList.remove("hidden");
+  for (const stage of stages) {
+    const item = document.createElement("div");
+    item.className = `pipeline-stage ${stage.status}`;
+    const label = document.createElement("strong");
+    label.textContent = stage.label;
+    const status = document.createElement("small");
+    status.textContent = stage.status;
+    item.append(label, status);
+    root.appendChild(item);
+  }
 }
 
 function seekAndPlay(seconds) {
@@ -85,6 +107,8 @@ async function upload(file) {
   if (!file || state.uploadInProgress) return;
   setUploadBusy(true);
   state.analysisComplete = false;
+  state.pipelineStages = [];
+  renderPipelineStages();
   setStatus("Uploading…");
   const form = new FormData();
   form.append("file", file);
@@ -139,6 +163,7 @@ function showSource() {
     !state.analysisComplete || !state.source.audacity_project_ready,
   );
   renderSummary();
+  renderPipelineStages();
   $("run-slate").disabled = state.source.status !== "ready";
   $("run-birdnet").disabled =
     state.source.status !== "ready" || !state.source.location;
@@ -176,45 +201,38 @@ async function waitForPipeline(sourceId) {
     );
     const analysis = status.analysis || {};
     state.analysisComplete = Boolean(analysis.complete);
+    state.pipelineStages = analysis.stages || [];
+    renderPipelineStages();
 
     if (analysis.complete) {
       state.source = await api(`/api/sources/${sourceId}`);
       showSource();
-      setStatus(
-        status.ready
-          ? "Analysis complete · Audacity project ready"
-          : "Analysis complete · preparing Audacity project…",
-      );
-      if (status.ready) return;
+      setStatus("Analysis complete");
+      return;
     }
 
-    if (status.job?.status === "failed") {
-      throw new Error(`Audacity export failed: ${status.job.error || "unknown error"}`);
-    }
+    const currentStage = state.pipelineStages.find(
+      (stage) => !["complete", "skipped"].includes(stage.status),
+    );
 
-    if (!analysis.location_ready) {
-      if (
-        analysis.slate_transcript_status === "queued" ||
-        analysis.slate_transcript_status === "running"
-      ) {
-        setStatus("Transcribing opening slate…");
-      } else if (analysis.slate_transcript_status === "failed") {
-        setStatus("Opening slate transcription failed", true);
-      } else {
-        setStatus("Waiting for opening slate transcription…");
+    if (currentStage) {
+      if (currentStage.status === "failed") {
+        setStatus(`${currentStage.label} failed`, true);
+        return;
       }
-    } else if (!analysis.birdnet_location_filtered) {
-      if (analysis.birdnet_status === "queued" || analysis.birdnet_status === "running") {
-        setStatus("Running location-filtered BirdNET…");
-      } else if (analysis.birdnet_status === "failed") {
-        setStatus("Location-filtered BirdNET failed", true);
-      } else {
-        setStatus("Waiting for location-filtered BirdNET…");
+      if (currentStage.status === "blocked") {
+        setStatus(`${currentStage.label} blocked`, true);
+        return;
       }
+      const verb =
+        currentStage.status === "running"
+          ? "running"
+          : currentStage.status === "queued"
+            ? "queued"
+            : "waiting";
+      setStatus(`${currentStage.label}: ${verb}…`);
     } else if (pending.length) {
       setStatus(`Analyzing ${pending.map((run) => run.analyzer).join(", ")}…`);
-    } else if (status.job) {
-      setStatus(`Creating Audacity project: ${status.job.status}…`);
     } else {
       setStatus("Finishing analysis…");
     }
