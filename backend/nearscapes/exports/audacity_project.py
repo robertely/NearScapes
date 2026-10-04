@@ -367,10 +367,7 @@ def build_audacity_project(
                     )
                 track_index += 1
 
-            save_command = (
-                f"SaveProject2: Filename={_quoted(str(temporary_output))} "
-                "AddToHistory=0"
-            )
+            save_command = f"SaveCopy: Filename={_quoted(str(temporary_output))}"
             try:
                 pipe.command(save_command)
             except TimeoutError:
