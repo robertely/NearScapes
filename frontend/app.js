@@ -1,4 +1,20 @@
-const state = { source: null, waveform: null, runs: [], eventsByRun: new Map(), autoDownloadAudacity: false };
+const DEFAULT_WILDLIFE_CONFIDENCE = 0.60;
+const savedWildlifeConfidence = Number(localStorage.getItem("nearscapes.wildlifeConfidence"));
+const initialWildlifeConfidence =
+  Number.isFinite(savedWildlifeConfidence) &&
+  savedWildlifeConfidence >= 0.25 &&
+  savedWildlifeConfidence <= 0.95
+    ? savedWildlifeConfidence
+    : DEFAULT_WILDLIFE_CONFIDENCE;
+
+const state = {
+  source: null,
+  waveform: null,
+  runs: [],
+  eventsByRun: new Map(),
+  autoDownloadAudacity: false,
+  wildlifeConfidence: initialWildlifeConfidence,
+};
 const $ = (id) => document.getElementById(id);
 
 function setStatus(text, isError = false) {
@@ -27,6 +43,7 @@ async function upload(file) {
   state.autoDownloadAudacity = true;
   const form = new FormData();
   form.append("file", file);
+  form.append("birdnet_confidence", state.wildlifeConfidence.toFixed(2));
   const result = await api("/api/sources", { method: "POST", body: form });
   state.source = result.source;
   showSource();
@@ -251,10 +268,34 @@ async function runSlate() {
 async function runBirdNet() {
   await runAnalyzer(
     "birdnet",
-    { backend: "onnx", precision: "fp16", confidence: 0.25, n_workers: 1 },
+    {
+      backend: "onnx",
+      precision: "fp16",
+      confidence: state.wildlifeConfidence,
+      n_workers: 1,
+    },
     "BirdNET wildlife",
   );
 }
+
+const wildlifeConfidenceInput = $("birdnet-confidence");
+const wildlifeConfidenceValue = $("birdnet-confidence-value");
+
+function renderWildlifeConfidence() {
+  wildlifeConfidenceInput.value = state.wildlifeConfidence.toFixed(2);
+  wildlifeConfidenceValue.value = `${Math.round(state.wildlifeConfidence * 100)}%`;
+}
+
+wildlifeConfidenceInput.addEventListener("input", () => {
+  state.wildlifeConfidence = Number(wildlifeConfidenceInput.value);
+  localStorage.setItem(
+    "nearscapes.wildlifeConfidence",
+    state.wildlifeConfidence.toFixed(2),
+  );
+  renderWildlifeConfidence();
+});
+
+renderWildlifeConfidence();
 
 $("file-input").addEventListener("change", (event) => {
   const file = event.target.files[0];
