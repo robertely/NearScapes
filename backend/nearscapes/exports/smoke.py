@@ -25,15 +25,15 @@ def _write_fixture(path: Path) -> None:
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="nearscapes-aup3-smoke-") as temp:
+    with tempfile.TemporaryDirectory(prefix="nearscapes aup3 smoke ") as temp:
         root = Path(temp)
-        audio = root / "fixture.wav"
-        project = root / "fixture.analysis.aup3"
+        audio = root / "Two Ponds Walk.wav"
+        project = root / "Two Ponds Walk.analysis.aup3"
         _write_fixture(audio)
 
         source = SimpleNamespace(
             storage_path=str(audio),
-            filename="fixture.wav",
+            filename="Two Ponds Walk.wav",
         )
         run = AnalysisRun(
             id="smoke-run",
