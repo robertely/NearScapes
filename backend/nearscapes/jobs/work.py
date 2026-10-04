@@ -37,6 +37,19 @@ def _fail_job(job_id: str, message: str) -> None:
             db.commit()
 
 
+def metadata_with_detected_location(metadata: dict, detections: list) -> dict:
+    updated = dict(metadata or {})
+    if updated.get("location"):
+        return updated
+
+    for detection in detections:
+        location = (detection.attributes or {}).get("location")
+        if location:
+            updated["location"] = dict(location)
+            break
+    return updated
+
+
 def ingest_source_impl(
     job_id: str,
     source_id: str,
@@ -141,6 +154,12 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
             job = db.get(Job, job_id)
             if not run or not job:
                 return
+            source = db.get(SourceRecording, run.source_id)
+            if analyzer_id == "slate-transcript" and source:
+                source.embedded_metadata = metadata_with_detected_location(
+                    source.embedded_metadata or {},
+                    detections,
+                )
             for detection in detections:
                 db.add(
                     Event(
