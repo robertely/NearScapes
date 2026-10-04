@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
-from nearscapes.analyzers.slate_transcript import parse_announced_time
+from nearscapes.analyzers.slate_transcript import (
+    parse_announced_time,
+    parse_opening_location,
+)
 from nearscapes.pipeline import build_slate_transcription_windows
 
 
@@ -86,3 +89,31 @@ def test_parses_announced_clock_times():
 def test_rejects_non_time_speech_as_note_slate():
     assert parse_announced_time("train crossing, lots of birds") is None
     assert parse_announced_time("I think it is around eleven") is None
+
+
+
+def test_parses_opening_slate_location():
+    assert parse_opening_location(
+        "This is Robert Ely recording at 39.81234, negative 105.12345. "
+        "The current time is 11:20 AM."
+    ) == {
+        "latitude": 39.81234,
+        "longitude": -105.12345,
+        "source": "opening-slate",
+    }
+
+
+def test_parses_labelled_opening_slate_location():
+    assert parse_opening_location(
+        "Latitude 39.81234, longitude minus 105.12345."
+    ) == {
+        "latitude": 39.81234,
+        "longitude": -105.12345,
+        "source": "opening-slate",
+    }
+
+
+def test_rejects_invalid_opening_slate_coordinates():
+    assert parse_opening_location(
+        "This is a recording at 139.81234, -205.12345."
+    ) is None
