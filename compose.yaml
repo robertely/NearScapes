@@ -71,7 +71,7 @@ services:
   worker:
     build: .
     gpus: all
-    command: ["dramatiq", "nearscapes.jobs.tasks", "--processes", "1", "--threads", "2"]
+    command: ["dramatiq", "nearscapes.jobs.tasks", "--processes", "1", "--threads", "2", "--queues", "analysis"]
     environment:
       <<: *app-env
       NVIDIA_VISIBLE_DEVICES: all
