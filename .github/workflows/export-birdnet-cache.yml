@@ -1,0 +1,24 @@
+name: Export BirdNET cache
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/export-birdnet-cache.yml"
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: .birdnet
+          key: birdnet-v3-onnx-fp16-preview3.1
+          fail-on-cache-miss: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: birdnet-v3-cpu-cache
+          path: .birdnet
+          retention-days: 1
+          compression-level: 0
