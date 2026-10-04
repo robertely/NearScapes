@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import select as io_select
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -33,7 +34,9 @@ def _clean_label(value: str) -> str:
 
 
 def _quoted(value: str) -> str:
-    return "'" + value.replace("'", "’") + "'"
+    # Audacity's scripting syntax uses double quotes for string/path values.
+    # Replace embedded quotes rather than emitting an ambiguous command.
+    return '"' + value.replace('"', "”") + '"'
 
 
 def _stop_process(process: subprocess.Popen) -> None:
@@ -326,20 +329,39 @@ def _audacity_input_path(source: SourceRecording, temp_root: Path) -> Path:
     return alias
 
 
+def _publish_audacity_project(working_output: Path, output: Path) -> None:
+    if not _is_audacity_project(working_output):
+        raise RuntimeError("Audacity did not create a usable AUP3 SQLite project")
+
+    fd, staged_name = tempfile.mkstemp(
+        prefix=f".{output.stem}.",
+        suffix=".tmp.aup3",
+        dir=output.parent,
+    )
+    os.close(fd)
+    staged_output = Path(staged_name)
+    try:
+        shutil.copyfile(working_output, staged_output)
+        if not _is_audacity_project(staged_output):
+            raise RuntimeError("Copied Audacity project is not a usable AUP3 SQLite project")
+        staged_output.replace(output)
+    finally:
+        staged_output.unlink(missing_ok=True)
+
+
 def build_audacity_project(
     source: SourceRecording,
     runs: list[tuple[AnalysisRun, list[Event]]],
     output: Path,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
-    temporary_output = output.with_name(f"{output.stem}.tmp.aup3")
-    temporary_output.unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="nearscapes-audacity-") as temp:
         temp_root = Path(temp)
         home = temp_root / "home"
         home.mkdir(parents=True)
         input_path = _audacity_input_path(source, temp_root)
+        working_output = temp_root / "project.aup3"
         pipe = AudacityPipe(home)
         try:
             pipe.bootstrap_module()
@@ -353,7 +375,7 @@ def build_audacity_project(
             # headless mode while "Copying Project"; once the project owns its
             # AUP3, subsequent saves use the normal in-place path.
             pipe.command(
-                f"SaveProject2: Filename={_quoted(str(temporary_output))} "
+                f"SaveProject2: Filename={_quoted(str(working_output))} "
                 "AddToHistory=0"
             )
             pipe.command(f"Import2: Filename={_quoted(str(input_path))}")
@@ -389,7 +411,7 @@ def build_audacity_project(
                 track_index += 1
 
             save_command = (
-                f"SaveProject2: Filename={_quoted(str(temporary_output))} "
+                f"SaveProject2: Filename={_quoted(str(working_output))} "
                 "AddToHistory=0"
             )
             try:
@@ -398,14 +420,15 @@ def build_audacity_project(
                 # Audacity 3.2 on headless Linux can finish SaveProject2 but
                 # fail to return the command response through mod-script-pipe.
                 # Accept that specific failure only when a real AUP3 was written.
-                if not _is_audacity_project(temporary_output):
+                if not _is_audacity_project(working_output):
                     raise
         finally:
             pipe.close()
 
-    if not _is_audacity_project(temporary_output):
-        raise RuntimeError("Audacity did not create a usable AUP3 SQLite project")
-    temporary_output.replace(output)
+        # Keep Audacity's SQLite I/O on its local scratch filesystem. Only after
+        # Audacity is closed do we copy the complete project onto persistent
+        # storage, using a same-filesystem staging file for atomic publication.
+        _publish_audacity_project(working_output, output)
 
 
 def export_audacity_impl(job_id: str, source_id: str) -> None:
