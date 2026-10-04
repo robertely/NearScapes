@@ -25,6 +25,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        audacity=3.2.4+dfsg-1 \
        dbus-x11 \
+       xauth \
        xvfb \
     && rm -rf /var/lib/apt/lists/*
 CMD ["dramatiq", "nearscapes.jobs.audacity_tasks", "--processes", "1", "--threads", "1", "--queues", "audacity"]
