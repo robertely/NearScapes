@@ -286,10 +286,13 @@ def queue_birdnet_analysis(source_id: str, upstream_run_id: str) -> str | None:
             existing
             and (existing.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
             and existing.analyzer_version == analyzer.version
-            and existing.status in {"queued", "running", "complete"}
-            and (not location_available or existing_is_location_filtered)
         ):
-            return existing.id
+            if existing.status in {"queued", "running"}:
+                return existing.id
+            if existing.status == "complete" and (
+                not location_available or existing_is_location_filtered
+            ):
+                return existing.id
 
         parameters = default_parameters(_BIRDNET_ANALYZER)
         parameters.update(
@@ -374,8 +377,10 @@ def resume_upload_pipeline(source_id: str) -> str | None:
         if transcript_run.status in {"queued", "running"}:
             return transcript_run.id
         if transcript_run.status == "complete":
-            backfill_location_from_opening_slate(source_id)
-            return queue_birdnet_analysis(source_id, transcript_run.id)
+            location = backfill_location_from_opening_slate(source_id)
+            if location:
+                return queue_birdnet_analysis(source_id, transcript_run.id)
+            return transcript_run.id
 
     return queue_birdnet_analysis(source_id, slate_run.id)
 
