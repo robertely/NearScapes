@@ -90,8 +90,6 @@ def ingest_source_impl(job_id: str, source_id: str) -> None:
                 source.error = str(exc)[:4000]
                 db.commit()
         _fail_job(job_id, str(exc))
-        if source_id:
-            maybe_queue_audacity_export(source_id)
         raise
 
 
