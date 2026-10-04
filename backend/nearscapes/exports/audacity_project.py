@@ -155,14 +155,19 @@ class AudacityPipe:
             if data:
                 chunks.append(data)
                 decoded = b"".join(chunks).decode(errors="replace")
-                if "BatchCommand finished:" in decoded:
+                # mod-script-pipe terminates each response with a blank line.
+                # Do not wait for a particular status string: commands such as
+                # Help/GetInfo do not all emit the same trailer.
+                if decoded.endswith("\n\n") or decoded.endswith("\r\n\r\n"):
                     if "BatchCommand finished: Failed!" in decoded:
                         raise RuntimeError(f"Audacity command failed: {command}\n{decoded}")
                     return decoded
             elif self.process and self.process.poll() is not None:
                 break
 
-        raise TimeoutError(f"Timed out waiting for Audacity command: {command}")
+        raise TimeoutError(
+            f"Timed out waiting for Audacity command: {command}\n" + self._log_tail()
+        )
 
     def close(self) -> None:
         if self.to_fd is not None:
