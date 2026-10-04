@@ -324,24 +324,33 @@ def resume_upload_pipeline(source_id: str) -> str | None:
             (
                 run
                 for run in runs
-                if run.analyzer == "slate-tone"
-                and (run.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
-                and run.status == "complete"
+                if run.analyzer == "slate-tone" and run.status == "complete"
             ),
             None,
         )
-        if not slate_run:
-            return None
-
+        active_slate_run = next(
+            (
+                run
+                for run in runs
+                if run.analyzer == "slate-tone"
+                and run.status in {"queued", "running"}
+            ),
+            None,
+        )
         transcript_run = next(
             (
                 run
                 for run in runs
                 if run.analyzer == _SLATE_TRANSCRIPT_ANALYZER
-                and (run.parameters or {}).get(_PIPELINE_MARKER) == _UPLOAD_PIPELINE
             ),
             None,
         )
+
+    if not slate_run:
+        if active_slate_run:
+            return active_slate_run.id
+        queued = queue_upload_analysis(source_id)
+        return queued[0] if queued else None
 
     if settings.accelerator.lower() in {"metal", "mps"}:
         transcript_analyzer = get_analyzer(_SLATE_TRANSCRIPT_ANALYZER)
@@ -358,6 +367,76 @@ def resume_upload_pipeline(source_id: str) -> str | None:
             return queue_birdnet_analysis(source_id, transcript_run.id)
 
     return queue_birdnet_analysis(source_id, slate_run.id)
+
+
+def upload_pipeline_status(source_id: str) -> dict:
+    """Return whether the current location-aware upload pipeline is actually complete."""
+    settings = get_settings()
+    backfill_location_from_opening_slate(source_id)
+
+    with SessionLocal() as db:
+        source = db.get(SourceRecording, source_id)
+        if not source:
+            return {
+                "complete": False,
+                "location_ready": False,
+                "slate_transcript_status": None,
+                "birdnet_status": None,
+                "birdnet_location_filtered": False,
+            }
+
+        location = (source.embedded_metadata or {}).get("location")
+        runs = db.scalars(
+            select(AnalysisRun)
+            .where(AnalysisRun.source_id == source_id)
+            .order_by(AnalysisRun.created_at.desc())
+        ).all()
+
+        transcript_run = next(
+            (run for run in runs if run.analyzer == _SLATE_TRANSCRIPT_ANALYZER),
+            None,
+        )
+        birdnet_run = next(
+            (run for run in runs if run.analyzer == _BIRDNET_ANALYZER),
+            None,
+        )
+
+        birdnet_location_filtered = False
+        if birdnet_run:
+            parameters = birdnet_run.parameters or {}
+            birdnet_location_filtered = (
+                parameters.get("latitude") is not None
+                and parameters.get("longitude") is not None
+            )
+            if birdnet_run.status == "complete" and not birdnet_location_filtered:
+                events = db.scalars(
+                    select(Event).where(Event.run_id == birdnet_run.id)
+                ).all()
+                birdnet_location_filtered = any(
+                    (event.attributes or {}).get("geo_filter_applied") is True
+                    for event in events
+                )
+
+        transcript_required = settings.accelerator.lower() in {"metal", "mps"}
+        transcript_complete = (
+            not transcript_required
+            or (transcript_run is not None and transcript_run.status == "complete")
+        )
+        birdnet_complete = (
+            birdnet_run is not None
+            and birdnet_run.status == "complete"
+            and birdnet_location_filtered
+        )
+
+        return {
+            "complete": bool(location) and transcript_complete and birdnet_complete,
+            "location_ready": bool(location),
+            "slate_transcript_status": (
+                transcript_run.status if transcript_run else None
+            ),
+            "birdnet_status": birdnet_run.status if birdnet_run else None,
+            "birdnet_location_filtered": birdnet_location_filtered,
+        }
 
 
 def maybe_queue_audacity_export(source_id: str, *, force: bool = False) -> str | None:
