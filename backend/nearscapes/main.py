@@ -19,6 +19,7 @@ from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
 from nearscapes.db.session import get_db
 from nearscapes.jobs.dispatch import dispatch_analysis, dispatch_ingest
 from nearscapes.logging import configure_logging
+from nearscapes.pipeline import maybe_queue_audacity_export
 from nearscapes.storage.local import LocalStorage
 
 settings = get_settings()
@@ -31,6 +32,7 @@ UploadedFile = Annotated[UploadFile, File(...)]
 
 
 def source_payload(source: SourceRecording) -> dict:
+    audacity_path = storage.audacity_project_path(source.sha256, source.filename)
     return {
         "id": source.id,
         "sha256": source.sha256,
@@ -44,6 +46,7 @@ def source_payload(source: SourceRecording) -> dict:
         "status": source.status,
         "error": source.error,
         "created_at": source.created_at.isoformat(),
+        "audacity_project_ready": audacity_path.exists(),
     }
 
 
@@ -169,6 +172,59 @@ def get_analysis(source_id: str, db: DbSession) -> dict:
         },
         "runs": run_results,
     }
+
+
+
+
+
+@app.get("/api/sources/{source_id}/audacity-status")
+def get_audacity_status(source_id: str, db: DbSession) -> dict:
+    source = db.get(SourceRecording, source_id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    path = storage.audacity_project_path(source.sha256, source.filename)
+    job = db.scalar(
+        select(Job)
+        .where(Job.source_id == source_id, Job.kind == "audacity-export")
+        .order_by(Job.created_at.desc())
+    )
+    return {
+        "ready": path.exists(),
+        "job": (
+            {
+                "id": job.id,
+                "status": job.status,
+                "progress": job.progress,
+                "error": job.error if job.status == "failed" else None,
+            }
+            if job
+            else None
+        ),
+    }
+
+
+@app.post("/api/sources/{source_id}/audacity-project", status_code=202)
+def queue_audacity_project(source_id: str, db: DbSession) -> dict:
+    source = db.get(SourceRecording, source_id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    job_id = maybe_queue_audacity_export(source_id, force=True)
+    return {"job_id": job_id}
+
+
+@app.get("/api/sources/{source_id}/audacity-project")
+def get_audacity_project(source_id: str, db: DbSession):
+    source = db.get(SourceRecording, source_id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    path = storage.audacity_project_path(source.sha256, source.filename)
+    if not path.exists():
+        raise HTTPException(409, "Audacity project is not ready")
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/octet-stream",
+    )
 
 
 @app.get("/api/sources/{source_id}/audio")
