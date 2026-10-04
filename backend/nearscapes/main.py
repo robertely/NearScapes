@@ -158,8 +158,6 @@ def get_source(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
-    advance_upload_pipeline(source_id)
-    db.refresh(source)
     return source_payload(source)
 
 
@@ -168,8 +166,6 @@ def get_analysis(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
-    advance_upload_pipeline(source_id)
-    db.refresh(source)
     runs = db.scalars(
         select(AnalysisRun)
         .where(AnalysisRun.source_id == source_id)
@@ -203,11 +199,6 @@ def get_audacity_status(source_id: str, db: DbSession) -> dict:
         raise HTTPException(404, "Source not found")
 
     analysis = upload_pipeline_status(source_id)
-    if not analysis["complete"]:
-        advance_upload_pipeline(source_id)
-        analysis = upload_pipeline_status(source_id)
-        db.refresh(source)
-
     path = storage.audacity_project_path(source.sha256, source.filename)
     job = db.scalar(
         select(Job)
