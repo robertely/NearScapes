@@ -18,8 +18,12 @@
 
     <section id="drop-zone" class="drop-zone">
       <strong>Drop an audio file here</strong>
-      <span>or choose a file</span>
-      <input id="file-input" type="file" accept="audio/*">
+      <span id="selected-file">No file selected</span>
+      <div class="upload-actions">
+        <label class="button-link" for="file-input">Choose file</label>
+        <input id="file-input" class="visually-hidden" type="file" accept="audio/*">
+        <button id="upload-button" disabled>Upload &amp; Analyze</button>
+      </div>
     </section>
 
     <section id="workspace" class="workspace hidden">
