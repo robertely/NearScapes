@@ -19,7 +19,11 @@ from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
 from nearscapes.db.session import get_db
 from nearscapes.jobs.dispatch import dispatch_analysis, dispatch_ingest
 from nearscapes.logging import configure_logging
-from nearscapes.pipeline import maybe_queue_audacity_export, queue_upload_analysis
+from nearscapes.pipeline import (
+    backfill_location_from_opening_slate,
+    maybe_queue_audacity_export,
+    queue_upload_analysis,
+)
 from nearscapes.storage.local import LocalStorage
 
 settings = get_settings()
@@ -121,8 +125,10 @@ async def upload_source(
         existing = db.scalar(select(SourceRecording).where(SourceRecording.sha256 == sha256))
         if existing:
             if existing.status == "ready":
+                backfill_location_from_opening_slate(existing.id)
                 queue_upload_analysis(existing.id, analysis_overrides)
                 maybe_queue_audacity_export(existing.id)
+                db.refresh(existing)
             return {"source": source_payload(existing), "job": None, "deduplicated": True}
 
         destination = storage.source_path(sha256, filename)
@@ -154,6 +160,9 @@ def get_source(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
+    if not (source.embedded_metadata or {}).get("location"):
+        backfill_location_from_opening_slate(source_id)
+        db.refresh(source)
     return source_payload(source)
 
 
@@ -162,6 +171,9 @@ def get_analysis(source_id: str, db: DbSession) -> dict:
     source = db.get(SourceRecording, source_id)
     if not source:
         raise HTTPException(404, "Source not found")
+    if not (source.embedded_metadata or {}).get("location"):
+        backfill_location_from_opening_slate(source_id)
+        db.refresh(source)
     runs = db.scalars(
         select(AnalysisRun)
         .where(AnalysisRun.source_id == source_id)
