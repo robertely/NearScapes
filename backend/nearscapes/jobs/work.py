@@ -168,4 +168,6 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
                 run.finished_at = _now()
                 db.commit()
         _fail_job(job_id, str(exc))
+        if source_id:
+            maybe_queue_audacity_export(source_id)
         raise
