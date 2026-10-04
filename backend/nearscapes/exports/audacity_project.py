@@ -104,9 +104,15 @@ class AudacityPipe:
         parser.optionxform = str
         if config_path.exists():
             parser.read(config_path)
-        for section in ("Module", "ModulePath", "ModuleDateTime"):
+        for section in ("Module", "ModulePath", "ModuleDateTime", "GUI", "Effects"):
             if not parser.has_section(section):
                 parser.add_section(section)
+
+        # Keep startup noninteractive. Otherwise the scripting worker can block
+        # behind Audacity's first-run/plug-in UI while the pipe thread waits for
+        # the GUI thread to execute a command.
+        parser.set("GUI", "ShowSplashScreen", "0")
+        parser.set("Effects", "SkipEffectsScanAtStartup", "1")
 
         parser.set("Module", "mod-script-pipe", "1")
         parser.set("ModulePath", "mod-script-pipe", str(module_path))
