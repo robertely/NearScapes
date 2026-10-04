@@ -84,5 +84,6 @@ jobs:
         with:
           name: birdnet-v3-cpu-cache
           path: .birdnet
+          include-hidden-files: true
           retention-days: 1
           compression-level: 0
