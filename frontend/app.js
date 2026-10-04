@@ -226,7 +226,7 @@ function drawLanes() {
   lanes.innerHTML = "";
   const duration = state.source.duration_seconds || state.waveform?.duration_seconds || 1;
   for (const run of state.runs) {
-    if (run.status !== "complete") continue;
+    if (run.status !== "complete" || !visibleRun(run)) continue;
     const lane = document.createElement("div");
     lane.className = "lane";
     const name = document.createElement("span");
@@ -256,6 +256,31 @@ function latestCompletedRun(analyzer) {
     .find((run) => run.analyzer === analyzer && run.status === "complete");
 }
 
+function isLocationFilteredBirdNetRun(run) {
+  if (run.analyzer !== "birdnet") return false;
+
+  const parameters = run.parameters || {};
+  if (parameters.latitude != null && parameters.longitude != null) return true;
+
+  const events = state.eventsByRun.get(run.id) || [];
+  return events.some((event) => event.attributes?.geo_filter_applied === true);
+}
+
+function visibleRun(run) {
+  return run.analyzer !== "birdnet" || isLocationFilteredBirdNetRun(run);
+}
+
+function latestLocationFilteredBirdNetRun() {
+  return [...state.runs]
+    .reverse()
+    .find(
+      (run) =>
+        run.analyzer === "birdnet" &&
+        run.status === "complete" &&
+        isLocationFilteredBirdNetRun(run),
+    );
+}
+
 function renderSummary() {
   if (!state.source) return;
 
@@ -282,7 +307,7 @@ function renderSummary() {
 
   const birds = $("summary-birds");
   birds.innerHTML = "";
-  const birdRun = latestCompletedRun("birdnet");
+  const birdRun = latestLocationFilteredBirdNetRun();
   const birdEvents = birdRun ? state.eventsByRun.get(birdRun.id) || [] : [];
   const species = new Map();
 
@@ -362,11 +387,12 @@ function renderSummary() {
 function renderRuns() {
   const runs = $("runs");
   runs.innerHTML = "";
-  if (!state.runs.length) {
+  const visibleRuns = state.runs.filter(visibleRun);
+  if (!visibleRuns.length) {
     runs.textContent = "No analysis runs yet.";
     return;
   }
-  for (const run of state.runs) {
+  for (const run of visibleRuns) {
     const row = document.createElement("div");
     row.className = "run";
     const events = state.eventsByRun.get(run.id) || [];
@@ -381,6 +407,7 @@ function renderEvents() {
   list.innerHTML = "";
   const rows = [];
   for (const run of state.runs) {
+    if (!visibleRun(run)) continue;
     for (const event of state.eventsByRun.get(run.id) || []) rows.push({ run, event });
   }
   rows.sort((a, b) => a.event.start_seconds - b.event.start_seconds);
