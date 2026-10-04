@@ -103,8 +103,6 @@ def build_slate_transcription_windows(
 
         start_seconds = float(marker_event.end_seconds)
         end_seconds = min(source_duration_seconds, start_seconds + post_seconds)
-        if index + 1 < len(markers):
-            end_seconds = min(end_seconds, float(markers[index + 1].start_seconds))
 
         if end_seconds - start_seconds >= 0.1:
             windows.append(
