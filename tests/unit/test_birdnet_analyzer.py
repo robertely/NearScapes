@@ -67,3 +67,32 @@ def test_birdnet_normalizes_cpu_predictions(monkeypatch, tmp_path):
     assert event.confidence == pytest.approx(0.91)
     assert event.attributes["scientific_name"] == "Poecile atricapillus"
     assert event.attributes["device"] == "CPU"
+
+
+def test_birdnet_uses_original_extension_for_extensionless_storage(monkeypatch, tmp_path):
+    class ExtensionCheckingModel:
+        def predict(self, path, device, n_workers):
+            assert path.suffix == ".mp3"
+            assert path.exists()
+            return FakePredictions()
+
+    fake_birdnet = SimpleNamespace(load=lambda *args, **kwargs: ExtensionCheckingModel())
+    monkeypatch.setitem(sys.modules, "birdnet", fake_birdnet)
+
+    source = tmp_path / "source"
+    source.write_bytes(b"fixture")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    context = AnalyzerContext(
+        source_path=source,
+        cache_dir=cache,
+        source_sha256="abc",
+        source_filename="Two Ponds Walk.mp3",
+    )
+
+    events = BirdNetAnalyzer().analyze(
+        context,
+        {"confidence": 0.25, "backend": "onnx", "n_workers": 1},
+    )
+
+    assert len(events) == 1
