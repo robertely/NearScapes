@@ -39,6 +39,19 @@ Important defaults:
 - `NEARSCAPES_SLATE_EXPECTED_DURATION_SECONDS=2.0`
 - `NEARSCAPES_SLATE_MIN_TONE_TO_GUARD_DB=25`
 
+## Apple Silicon GPU inference
+
+Apple M2 is a first-class deployment target. NearScapes keeps the web/API, persistence, DSP, and job orchestration in Docker, but runs supported ML inference through a small native macOS Metal service. Standard Linux containers on Docker Desktop do not provide general Metal passthrough, so forcing inference into the container would throw away the M2 GPU.
+
+For Whisper, the intended first backend is `whisper.cpp` with Metal enabled. MLX is the preferred path for other models when a maintained MLX implementation exists. The Docker worker talks to the host process through a configured endpoint such as:
+
+```text
+NEARSCAPES_INFERENCE_BACKEND=metal
+NEARSCAPES_INFERENCE_URL=http://host.docker.internal:8787
+```
+
+GPU-requested jobs must fail clearly if the Metal service is unavailable; they should not silently fall back to slow CPU inference.
+
 ## Development
 
 The supported application runtime is Docker. For fast unit-test iteration on a host with Python/uv available:
