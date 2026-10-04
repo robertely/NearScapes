@@ -52,7 +52,7 @@ def test_unpaired_beep_uses_post_window():
     ]
 
 
-def test_post_window_stops_at_next_beep():
+def test_note_window_is_not_truncated_by_later_tone_candidate():
     events = [
         _event(1.0, 3.0, "slate-marker"),
         _event(12.0, 14.0, "slate-marker"),
@@ -66,7 +66,12 @@ def test_post_window_stops_at_next_beep():
 
     assert windows[0] == {
         "start_seconds": 3.0,
-        "end_seconds": 12.0,
+        "end_seconds": 33.0,
+        "boundary": "note-slate-candidate",
+    }
+    assert windows[1] == {
+        "start_seconds": 14.0,
+        "end_seconds": 44.0,
         "boundary": "note-slate-candidate",
     }
 
