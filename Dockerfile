@@ -31,6 +31,7 @@ RUN apt-get update \
        audacity \
        dbus-x11 \
        ffmpeg \
+       x11-utils \
        xauth \
        xvfb \
     && rm -rf /var/lib/apt/lists/* \
