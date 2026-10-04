@@ -30,9 +30,10 @@ The original uploaded audio is read-only. NearScapes does not rewrite or transco
 - One common event model drives the UI, JSON export, Audacity labels, and Audacity project generation.
 - Models are plugins, not special cases.
 - Decode/resample audio once and cache reusable representations.
-- CPU-only operation must work; GPU acceleration is optional.
+- Apple Silicon is a first-class target. An Apple M2 deployment must use the GPU for supported ML inference through Metal/MLX rather than silently falling back to CPU.
+- CPU-only operation remains a fallback for machines without a supported accelerator.
 - Prefer deterministic processing where possible, especially for the 1 kHz recording slate.
-- Containers are the supported runtime and development environment.
+- The application/control plane is containerized. On macOS, GPU inference is intentionally provided by a small native host process because ordinary Linux containers do not get general Metal GPU passthrough.
 
 ---
 
@@ -102,6 +103,29 @@ Initial implementation:
 
 Treat this as a replaceable adapter. Do not let Audacity-specific behavior leak into the core event model.
 
+### `metal-inference` (Apple Silicon)
+
+Native macOS inference process used when `NEARSCAPES_INFERENCE_BACKEND=metal`.
+
+This is a backing service, not a second application. The Dockerized worker sends bounded audio regions plus analyzer parameters to it and receives normalized model results.
+
+Initial backends:
+
+- Whisper: `whisper.cpp` built with Metal enabled. Apple Silicon is a first-class target and Whisper inference should run on the GPU.
+- MLX: use for models with a maintained MLX implementation, taking advantage of Apple unified memory and GPU execution.
+- Model-specific Core ML adapters may be added where they are the best-supported path.
+
+On Docker Desktop for macOS the service is reached through a configured host endpoint, for example:
+
+```
+NEARSCAPES_INFERENCE_BACKEND=metal
+NEARSCAPES_INFERENCE_URL=http://host.docker.internal:8787
+```
+
+The worker must fail clearly if a run requests GPU inference and the native Metal service is unavailable. It must not silently run a large model on the CPU.
+
+The host inference process is stateless apart from its model cache and is configured via environment variables, preserving the Twelve-Factor boundary. DSP-only analyzers such as the 1 kHz slate detector stay inside the Docker worker.
+
 ## Storage
 
 Use an object-storage abstraction.
@@ -160,6 +184,8 @@ NEARSCAPES_LOG_LEVEL=INFO
 NEARSCAPES_MAX_UPLOAD_BYTES=
 NEARSCAPES_WORKER_CONCURRENCY=
 NEARSCAPES_DEVICE=auto
+NEARSCAPES_INFERENCE_BACKEND=metal
+NEARSCAPES_INFERENCE_URL=http://host.docker.internal:8787
 ```
 
 Model/analyzer defaults that are not secrets should also be representable in a versioned config file, but deployment-specific values come from the environment.
@@ -168,7 +194,7 @@ No secrets in the repository.
 
 ## IV. Backing services
 
-Postgres, Redis, file/object storage, and the Audacity exporter are attached resources addressed by configuration.
+Postgres, Redis, file/object storage, the Audacity exporter, and the optional native Metal inference service are attached resources addressed by configuration.
 
 ## V. Build, release, run
 
@@ -194,7 +220,7 @@ No external reverse proxy is required for development.
 
 Scale analysis workers horizontally by process/container count.
 
-Analyzers should declare resource requirements so GPU-heavy jobs can later be routed to dedicated workers.
+Analyzers declare resource requirements and execution backends. On Apple Silicon, supported ML jobs are routed to the native Metal inference service; DSP and non-accelerated work stays in the Docker worker.
 
 ## IX. Disposability
 
