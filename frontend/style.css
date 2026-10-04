@@ -59,3 +59,11 @@ audio { width: 100%; margin: 20px 0 12px; }
 .summary-note { width: 100%; text-align: left; color: #17202a; }
 .summary-note span { line-height: 1.4; }
 @media (max-width: 700px) { .recording-summary { grid-template-columns: 1fr; } .summary-notes { grid-column: auto; } }
+
+.pipeline-stages { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 16px; }
+.pipeline-stage { display: grid; gap: 1px; min-width: 130px; padding: 8px 10px; border: 1px solid #d9ded9; border-radius: 8px; background: #fff; }
+.pipeline-stage strong { font-size: .82rem; font-weight: 600; }
+.pipeline-stage small { color: #66736b; text-transform: capitalize; }
+.pipeline-stage.complete { opacity: .65; }
+.pipeline-stage.running, .pipeline-stage.queued { border-color: #8e9b92; }
+.pipeline-stage.failed, .pipeline-stage.blocked { border-color: #b77575; }
