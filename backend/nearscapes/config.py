@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     waveform_points: int = 4000
     pcm_sample_rate: int = 8000
 
+    auto_analyze_uploads: bool = True
+    auto_audacity_export: bool = True
+    accelerator: str = "vulkan"
+
     slate_frequency_hz: float = 1000.0
     slate_frequency_tolerance_hz: float = 30.0
     slate_expected_duration_seconds: float = 2.0
@@ -24,6 +28,9 @@ class Settings(BaseSettings):
     slate_min_tone_to_guard_db: float = 25.0
     slate_min_tone_to_broadband_ratio: float = 0.03
     slate_max_pair_gap_seconds: float = 60.0
+
+    audacity_command_timeout_seconds: float = 30.0
+    audacity_start_timeout_seconds: float = 30.0
 
 
 @lru_cache
