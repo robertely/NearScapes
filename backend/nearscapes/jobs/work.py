@@ -118,6 +118,8 @@ def ingest_source_impl(
 def execute_analysis_impl(job_id: str, run_id: str) -> None:
     storage = LocalStorage()
     source_id: str | None = None
+    analyzer_id: str | None = None
+    parameters: dict = {}
     try:
         with SessionLocal() as db:
             job = db.get(Job, job_id)
