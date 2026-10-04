@@ -140,7 +140,7 @@ class SlateTranscriptAnalyzer:
         sample_rate = int(
             parameters.get("sample_rate", settings.slate_transcription_sample_rate)
         )
-        model = str(parameters.get("model", settings.slate_transcription_model))
+        model = str(parameters.get("model", settings.slate_transcription_cpu_model))
         language = str(parameters.get("language", settings.slate_transcription_language))
 
         pcm_path = ensure_mono_pcm(context.source_path, context.cache_dir, sample_rate)
