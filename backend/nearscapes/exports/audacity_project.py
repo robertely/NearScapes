@@ -4,7 +4,7 @@ import configparser
 import json
 import logging
 import os
-import select
+import select as io_select
 import signal
 import subprocess
 import tempfile
@@ -144,7 +144,7 @@ class AudacityPipe:
         chunks: list[bytes] = []
 
         while time.monotonic() < deadline:
-            ready, _, _ = select.select([self.from_fd], [], [], 0.25)
+            ready, _, _ = io_select.select([self.from_fd], [], [], 0.25)
             if not ready:
                 continue
             data = os.read(self.from_fd, 65536)
