@@ -87,3 +87,18 @@ jobs:
           include-hidden-files: true
           retention-days: 1
           compression-level: 0
+
+      - name: Switch to Python 3.13 for portable runtime wheels
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Download ONNX Runtime wheels
+        run: |
+          python -m pip download --only-binary=:all:             --dest /tmp/onnxruntime-wheels             onnxruntime==1.23.2
+      - name: Export ONNX Runtime wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: onnxruntime-py313-linux
+          path: /tmp/onnxruntime-wheels
+          retention-days: 1
+          compression-level: 0
