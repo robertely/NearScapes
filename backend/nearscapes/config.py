@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     auto_analyze_uploads: bool = True
     auto_audacity_export: bool = True
-    accelerator: str = "vulkan"
+    accelerator: str = "cpu"
 
     slate_frequency_hz: float = 1000.0
     slate_frequency_tolerance_hz: float = 30.0
