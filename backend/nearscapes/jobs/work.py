@@ -12,6 +12,7 @@ from nearscapes.audio.waveform import calculate_waveform, write_waveform
 from nearscapes.config import get_settings
 from nearscapes.db.models import AnalysisRun, Event, Job, SourceRecording
 from nearscapes.db.session import SessionLocal
+from nearscapes.pipeline import maybe_queue_audacity_export, queue_upload_analysis
 from nearscapes.storage.local import LocalStorage
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,8 @@ def ingest_source_impl(job_id: str, source_id: str) -> None:
             job.progress = 1.0
             job.finished_at = _now()
             db.commit()
+
+        queue_upload_analysis(source_id)
     except Exception as exc:
         logger.exception(
             "source ingestion failed", extra={"job_id": job_id, "source_id": source_id}
@@ -87,18 +90,22 @@ def ingest_source_impl(job_id: str, source_id: str) -> None:
                 source.error = str(exc)[:4000]
                 db.commit()
         _fail_job(job_id, str(exc))
+        if source_id:
+            maybe_queue_audacity_export(source_id)
         raise
 
 
 def execute_analysis_impl(job_id: str, run_id: str) -> None:
     storage = LocalStorage()
+    source_id: str | None = None
     try:
         with SessionLocal() as db:
             job = db.get(Job, job_id)
             run = db.get(AnalysisRun, run_id)
             if not job or not run:
                 return
-            source = db.get(SourceRecording, run.source_id)
+            source_id = run.source_id
+            source = db.get(SourceRecording, source_id)
             if not source:
                 raise RuntimeError("Source no longer exists")
             if source.status != "ready":
@@ -148,6 +155,9 @@ def execute_analysis_impl(job_id: str, run_id: str) -> None:
             job.progress = 1.0
             job.finished_at = _now()
             db.commit()
+
+        if source_id:
+            maybe_queue_audacity_export(source_id)
     except Exception as exc:
         logger.exception("analysis failed", extra={"job_id": job_id, "run_id": run_id})
         with SessionLocal() as db:
