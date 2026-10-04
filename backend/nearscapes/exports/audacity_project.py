@@ -369,7 +369,7 @@ def build_audacity_project(
 
             save_command = (
                 f"SaveProject2: Filename={_quoted(str(temporary_output))} "
-                "AddToHistory=0 Compress=0"
+                "AddToHistory=0"
             )
             try:
                 pipe.command(save_command)
