@@ -3,8 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
-import os
-import tempfile
 from pathlib import Path
 from typing import Annotated
 
@@ -96,9 +94,7 @@ async def upload_source(file: UploadedFile, db: DbSession) -> dict:
     filename = Path(file.filename or "upload").name
     hasher = hashlib.sha256()
     byte_count = 0
-    fd, temporary_name = tempfile.mkstemp(prefix="nearscapes-upload-")
-    os.close(fd)
-    temporary = Path(temporary_name)
+    temporary = storage.create_upload_temp()
     try:
         with temporary.open("wb") as output:
             while chunk := await file.read(1024 * 1024):
